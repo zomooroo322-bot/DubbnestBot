@@ -29,7 +29,6 @@ MEMBER_COMMANDS = [
     BotCommand(command="inv",          description="Your inventory"),
     BotCommand(command="buy",          description="Buy an item"),
     BotCommand(command="use",          description="Use an item"),
-    BotCommand(command="gift",         description="Gift item to someone"),
     BotCommand(command="market",       description="Marketplace"),
     BotCommand(command="mywork",       description="Your active work"),
     BotCommand(command="submit",       description="Submit your work"),
