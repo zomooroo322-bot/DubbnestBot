@@ -32,6 +32,7 @@ BOT_PERSONALITY = (
 )
 
 STARTER_POINTS       = 50
+SHOP_MIN_POINTS      = 100   # user needs 100+ remaining pts to use shop/market
 # DATABASE_URL is set automatically by Railway when you add PostgreSQL
 CHECKIN_PTS          = 5
 CHECKIN_STREAK_BONUS = 20
@@ -49,14 +50,14 @@ AI_WARN_PENALTY       = 20
 
 STORE: dict = {
     "noise_cleanup(2min)":            50,
-    "vocal_separator2min)":          60,
-    "background_track(2min)":         180,
-    "deadline_extension(1d)":       200,
-    "priority_review":          50,
-    "personal_review":          100,
-    "featured_spotlight":       400,
-    "public_review_in_channel": 200,
-    "admins_voices":            120,
+    "vocal_separator(2min)":          60,
+    "background_track(2min)":         200,
+    "deadline_extension(1d)":       320,
+    "priority_review":          120,
+    "personal_review":          290,
+    "featured_spotlight":       420,
+    "public_review_in_channel": 220,
+    "admins_voices":            250,
     "clip_library":             220,
     "vip":                      500,
 }
@@ -77,27 +78,33 @@ ITEM_EMOJI: dict = {
 
 ITEM_DESCRIPTIONS: dict = {
     "noise_cleanup":
-        "🔇 <b>Noise Cleanup</b>\n\nAn admin will clean background noise from your clip.\nSend your audio/video directly to an admin.",
+        "🔇 <b>Noise Cleanup</b> — 2 min session\n\nAn admin will clean background noise from your clip.\nSend your audio/video directly to an admin after using.",
     "vocal_separator":
-        "🎤 <b>Vocal Separator</b>\n\nAn admin will separate vocals from your track.\nSend your audio/video directly to an admin.",
+        "🎤 <b>Vocal Separator</b> — 2 min session\n\nAn admin will separate vocals from your track.\nSend your audio/video directly to an admin after using.",
     "background_track":
-        "🎵 <b>Background Track</b>\n\nAn admin will provide a background music track.\nSend your clip or describe the style you need.",
+        "🎵 <b>Background Track</b> — 2 min session\n\nAn admin will provide a background music track for your clip.\nDescribe the style you need after using.",
     "deadline_extension":
-        "⏳ <b>Deadline Extension</b>\n\nYour deadline has been extended by 1 day.\nNo penalty for the extra day.",
+        "⏳ <b>Deadline Extension</b> — +1 Day\n\nExtends your current work deadline by 1 day.\nNo penalty charged for the extended day.\nUse /use deadline_extension to activate.",
     "priority_review":
-        "⚡ <b>Priority Review</b>\n\nYour next submission will be reviewed before others.\nJust submit as usual.",
+        "⚡ <b>Priority Review</b>\n\nYour next submission will be reviewed before others.\nJust submit as usual and it will be prioritized.",
     "personal_review":
-        "📋 <b>Personal Review</b>\n\nYou'll receive a detailed personal feedback session.\nAn admin will contact you to schedule it.",
+        "📋 <b>Personal Review</b>\n\nYou'll receive a detailed personal feedback session from an admin.\nAn admin will contact you to schedule it.",
     "featured_spotlight":
-        "🌟 <b>Featured Spotlight</b>\n\nYou will be featured in our spotlight!\nAn admin will contact you with details.",
+        "🌟 <b>Featured Spotlight</b>\n\nYou will be featured in our community spotlight!\nAn admin will contact you with details.",
     "public_review_in_channel":
-        "📢 <b>Public Review in Channel</b>\n\nYour work will be publicly reviewed.\nAn admin will reach out to arrange everything.",
+        "📢 <b>Public Review in Channel</b>\n\nYour work will be publicly reviewed in our channel.\nAn admin will reach out to arrange everything.",
     "admins_voices":
-        "🎙 <b>10-Minute VC with Admin</b>\n\nYou've unlocked a private 10-minute voice call with one of our admins!\nAn admin will contact you to schedule your session.",
+        "🎙 <b>10-Minute VC with Admin</b>\n\nUnlocks a private 10-minute voice call with one of our admins.\nUse /use admins_voices to notify admin and schedule your session.",
     "clip_library":
-        "📚 <b>Clip Library Access</b>\n\nUse /use clip_library to get your access link via DM.\nYour join request will be approved automatically.",
+        "📚 <b>Clip Library Access</b>\n\nUse /use clip_library to get your personal access link via DM.\nYour join request will be approved automatically.",
     "vip":
-        "👑 <b>VIP Status</b>\n\nWelcome to VIP!\n• 👑 VIP tag on profile & leaderboard\n• 🔒 Steal immunity for 7 days\n• 🎙 1 free 10-min VC with admin added to inventory\n• ⚡ 1 free priority_review added to inventory\n\nUse /use vip to activate.",
+        "👑 <b>VIP Status</b> — 14 Days\n\n"
+        "• 👑 VIP tag on profile & leaderboard\n"
+        "• 🤖 Access to Nexus AI (/ask)\n"
+        "• 🎙 2x 10-min VC with admin (added to inventory)\n"
+        "• ⚡ 1x priority review (added to inventory)\n"
+        "• 📚 Clip library access included\n\n"
+        "Use /use vip to activate.",
 }
 
 RATINGS: dict = {
@@ -105,12 +112,12 @@ RATINGS: dict = {
 }
 
 RANKS = [
-    (1050, "Elite Voice"),
-    (750,  "Star Artist"),
-    (300,  "Skilled Artist"),
-    (170,  "Active Member"),
-    (100,  "On Watch"),
-    (0,    "Beginner"),
+    (1050, "🏆 Elite Dubber"),
+    (750,  "⭐ Star Artist"),
+    (300,  "🎨 Skilled Artist"),
+    (170,  "✅ Active Member"),
+    (100,  "👀 On Watch"),
+    (0,    "🌱 Beginner"),
 ]
 
 OUTBURSTS = [
