@@ -90,7 +90,7 @@ async def resolve_user(message: Message, args: list, arg_index: int = 1):
         candidate = args[arg_index]
         if not candidate[0].isdigit():
             user = await fetch_one(
-                "SELECT * FROM users WHERE first_name LIKE ? COLLATE NOCASE LIMIT 1",
+                "SELECT * FROM users WHERE first_name ILIKE ? LIMIT 1",
                 (f"%{candidate}%",)
             )
             return user, args[arg_index + 1:]
