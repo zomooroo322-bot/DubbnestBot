@@ -8,7 +8,7 @@ from aiogram.types import Message
 from config import (
     ADMINS, GROUP_ID, PURCHASES_LOG_ID, STORE, ITEM_EMOJI, ITEM_DESCRIPTIONS,
     CLIP_LIBRARY_LINK, CHECKIN_PTS, CHECKIN_STREAK_BONUS, CHECKIN_STREAK_DAYS,
-    OUTBURST_EVERY, OUTBURSTS, RATINGS, REVIEWER_IDS,
+    OUTBURST_EVERY, OUTBURSTS, RATINGS, REVIEWER_IDS, SHOP_MIN_POINTS,
 )
 from core.database import (
     fetch_one, fetch_all, execute,
@@ -144,7 +144,6 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             "/buy &lt;item&gt; — Purchase item\n"
             "/inv — Your inventory\n"
             "/use &lt;item&gt; — Use an item\n"
-            "/gift @user &lt;item&gt; — Gift an item\n"
             "/bounty @user &lt;amount&gt; — Private bounty request\n"
             "/pbounty — Create a public bounty (reply to video)\n"
             "/market — Browse listings\n"
@@ -417,6 +416,14 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             return await message.reply("❌ Item not found. Check /shop.")
         await upsert_user(message.from_user)
         user = await get_user_by_tgid(message.from_user.id)
+        if not is_admin(message.from_user.id) and user["remaining_points"] < SHOP_MIN_POINTS:
+            return await message.reply(
+                f"🔒 <b>Shop Locked</b>\n\n"
+                f"You need at least <b>{SHOP_MIN_POINTS} remaining points</b> to use the shop.\n"
+                f"You currently have <b>{user['remaining_points']} pts</b>.\n\n"
+                f"💡 Complete projects and check in daily to earn more!",
+                parse_mode="HTML"
+            )
         cost = STORE[item]
         if not is_admin(message.from_user.id) and user["remaining_points"] < cost:
             return await message.reply(
@@ -580,60 +587,25 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             parse_mode="HTML"
         )
 
-    @dp.message(Command("gift"))
-    async def cmd_gift(message: Message):
-        await track_outburst(message, bot)
-        if await check_banned(message): return
-        await upsert_user(message.from_user)
-        sender = await get_user_by_tgid(message.from_user.id)
-        args   = message.text.split(maxsplit=2)
-        if message.reply_to_message and len(args) == 2:
-            item   = args[1].strip().lower()
-            target = await get_user_by_tgid(message.reply_to_message.from_user.id)
-            if not target:
-                return await message.reply("❌ That user is not registered.")
-        elif len(args) == 3:
-            item   = args[2].strip().lower()
-            target = await get_user_by_username(strip_at(args[1]))
-            if not target:
-                return await message.reply("❌ Target user not found.")
-        else:
-            return await message.reply(
-                "Usage: /gift @username &lt;item&gt;  or reply to user with /gift &lt;item&gt;",
-                parse_mode="HTML"
-            )
-        if item not in STORE:
-            return await message.reply("❌ Unknown item. Check /shop.", parse_mode="HTML")
-        if target["id"] == sender["id"]:
-            return await message.reply("❌ You can't gift yourself.")
-        inv_row = await fetch_one(
-            "SELECT id FROM inventory WHERE user_id = ? AND item = ? LIMIT 1", (sender["id"], item)
-        )
-        if not inv_row:
-            return await message.reply(f"❌ You don't have <b>{item}</b> in your inventory.", parse_mode="HTML")
-        await execute("DELETE FROM inventory WHERE id = ?", (inv_row["id"],))
-        await add_to_inventory(target["id"], item)
-        target_link = user_link(target["first_name"], target["telegram_id"], target["username"])
-        await message.reply(
-            f"🎁 You gifted {ITEM_EMOJI.get(item,'📦')} <b>{item}</b> to {target_link}!",
-            parse_mode="HTML"
-        )
-        sender_link = user_link(message.from_user.first_name or "User", message.from_user.id)
-        try:
-            await bot.send_message(target["telegram_id"],
-                f"🎁 <b>You received a gift!</b>\n"
-                f"{sender_link} gifted you: {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>\nCheck /inv.",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-
     @dp.message(Command("market"))
     async def cmd_market(message: Message):
         await track_outburst(message, bot)
         if await check_banned(message): return
         parts = message.text.split(maxsplit=3)
         sub   = parts[1].lower() if len(parts) >= 2 else "browse"
+
+        # Lock market list and buy behind 100pts threshold
+        if sub in ("list", "buy"):
+            await upsert_user(message.from_user)
+            _u = await get_user_by_tgid(message.from_user.id)
+            if not is_admin(message.from_user.id) and _u and _u["remaining_points"] < SHOP_MIN_POINTS:
+                return await message.reply(
+                    f"🔒 <b>Marketplace Locked</b>\n\n"
+                    f"You need at least <b>{SHOP_MIN_POINTS} remaining points</b> to use the marketplace.\n"
+                    f"You currently have <b>{_u['remaining_points']} pts</b>.\n\n"
+                    f"💡 Complete projects and check in daily to earn more!",
+                    parse_mode="HTML"
+                )
 
         if sub in ("browse", "market"):
             listings = await fetch_all(
