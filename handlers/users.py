@@ -48,12 +48,12 @@ async def get_badges(db_user) -> str:
         badges.append("🔥 Streak Master")
     if db_user["projects"] >= 5:
         badges.append("🎬 Veteran")
-    if db_user["total_points"] >= 500:
+    if db_user["artist_points"] >= 500:
         badges.append("⭐ High Earner")
     return "  ".join(badges) if badges else ""
 
 async def build_info_text(tg_user, db_user) -> str:
-    rank = calculate_rank(db_user["total_points"])
+    rank = calculate_rank(db_user["artist_points"])
     if db_user["is_vip"]:
         vip_exp = db_user["vip_expires_at"]
         vip_tag = f" 👑 VIP (expires {vip_exp[:10]})" if vip_exp else " 👑 VIP"
@@ -61,17 +61,25 @@ async def build_info_text(tg_user, db_user) -> str:
         vip_tag = ""
     link       = user_link(tg_user.first_name or "User", tg_user.id)
     badges     = await get_badges(db_user)
-    badge_line = f"\n🏆 Badges: {badges}" if badges else ""
+    badge_line = f"\n🏅 Badges: {badges}" if badges else ""
+    spent      = db_user["total_points"] - db_user["remaining_points"]
     return (
-        f"🎙 <b>PROFILE</b>\n"
+        f"╔══ 🎙 <b>DUBBNEST PROFILE</b> ══╗\n\n"
         f"👤 {link}{vip_tag}\n"
-        f"🎤 Speciality: {db_user['speciality']}\n"
-        f"⭐ Total Points: {db_user['total_points']}\n"
-        f"💰 Remaining Points: {db_user['remaining_points']}\n"
-        f"🎬 Projects: {db_user['projects']}\n"
-        f"🏆 Rank: {rank}\n"
-        f"🔥 Check-in Streak: {db_user['checkin_streak']} day(s)"
-        f"{badge_line}"
+        f"🎤 <b>Speciality:</b> {db_user['speciality']}\n"
+        f"🏆 <b>Rank:</b> {rank}\n"
+        f"🔥 <b>Streak:</b> {db_user['checkin_streak']} day(s)\n"
+        f"🎬 <b>Projects:</b> {db_user['projects']}\n\n"
+        f"━━━━ 💠 POINTS ━━━━\n"
+        f"🎨 <b>Artist Points:</b> {db_user['artist_points']} pts\n"
+        f"   <i>(dubbing work only — never decreases)</i>\n"
+        f"📊 <b>Total Points:</b> {db_user['total_points']} pts\n"
+        f"   <i>(lifetime earnings — never decreases)</i>\n"
+        f"💰 <b>Remaining Points:</b> {db_user['remaining_points']} pts\n"
+        f"   <i>(your spendable wallet)</i>\n"
+        f"💸 <b>Spent:</b> {spent} pts"
+        f"{badge_line}\n\n"
+        f"╚══════════════════╝"
     )
 
 async def build_stats_text(tg_user, db_user) -> str:
@@ -292,6 +300,9 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
         )
         streak_label = f" (streak {streak})" if not bonus else " (7-day streak bonus!)"
         await log_points(user["id"], pts_total, f"✅ Daily check-in{streak_label}")
+        # Milestone: 7-day streak bonus (remaining only, not artist)
+        if bonus:
+            await log_points(user["id"], bonus, "🔥 7-day streak milestone bonus")
         msg = (
             f"✅ <b>Check-in!</b>\n\n"
             f"🔥 Streak: <b>{streak}</b> day(s)\n"
@@ -307,20 +318,21 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
     async def cmd_top(message: Message):
         await track_outburst(message, bot)
         rows = await fetch_all(
-            f"SELECT telegram_id, first_name, username, total_points, is_vip "
+            f"SELECT telegram_id, first_name, username, artist_points, remaining_points, is_vip "
             f"FROM users WHERE telegram_id NOT IN ({','.join(str(a) for a in ADMINS)}) "
-            f"ORDER BY total_points DESC LIMIT 10"
+            f"ORDER BY artist_points DESC LIMIT 10"
         )
         if not rows:
             return await message.reply("No users yet.")
         medals = ["🥇", "🥈", "🥉"]
         lines  = []
         for i, row in enumerate(rows):
-            medal   = medals[i] if i < 3 else f"{i+1}."
-            vip_tag = " 👑" if row["is_vip"] else ""
-            link    = user_link(row["first_name"], row["telegram_id"], row["username"])
-            lines.append(f"{medal} {link}{vip_tag} — <b>{row['total_points']}</b> pts")
-        await message.reply("🏆 <b>TOP 10 LEADERBOARD</b>\n\n" + "\n".join(lines), parse_mode="HTML")
+            medal    = medals[i] if i < 3 else f"{i+1}."
+            vip_tag  = " 👑" if row["is_vip"] else ""
+            link     = user_link(row["first_name"], row["telegram_id"], row["username"])
+            rank_str = calculate_rank(row["artist_points"])
+            lines.append(f"{medal} {link}{vip_tag}\n    🎨 <b>{row['artist_points']}</b> artist pts | {rank_str}")
+        await message.reply("🏆 <b>TOP 10 — ARTIST LEADERBOARD</b>\n\n" + "\n".join(lines), parse_mode="HTML")
 
     @dp.message(Command("stats"))
     async def cmd_stats(message: Message):
@@ -496,26 +508,34 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             )
         if item == "vip":
             await execute("DELETE FROM inventory WHERE id = ?", (inv_row["id"],))
-            vip_expires = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+            vip_expires = (datetime.datetime.now() + datetime.timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
             await execute(
                 "UPDATE users SET is_vip = 1, vip_expires_at = ?, items_used = items_used + 1 WHERE id = ?",
                 (vip_expires, user["id"])
             )
+            # Add 2x VC sessions + 1x priority review to inventory
+            await add_to_inventory(user["id"], "admins_voices")
             await add_to_inventory(user["id"], "admins_voices")
             await add_to_inventory(user["id"], "priority_review")
+            # Arm clip library access
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            await execute(
+                "INSERT INTO clip_approved (telegram_id, approved_at) VALUES (?, ?) "
+                "ON CONFLICT(telegram_id) DO UPDATE SET approved_at = EXCLUDED.approved_at",
+                (message.from_user.id, now_str)
+            )
             vip_fmt = datetime.datetime.strptime(vip_expires, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M")
             await message.reply(
-                f"👑 <b>VIP Activated!</b>\n"
-                f"🔒 Steal immunity until <b>{vip_fmt}</b> (7 days)\n"
-                f"🎙 1x 10-min VC with admin + ⚡ 1x priority_review added to inventory!",
+                f"👑 <b>VIP Activated! (14 Days)</b>\n\n"
+                f"✅ Expires: <b>{vip_fmt}</b>\n"
+                f"🎙 2x 10-min VC with admin added to inventory\n"
+                f"⚡ 1x priority review added to inventory\n"
+                f"📚 Clip Library access armed — use /use clip_library to get your link!",
                 parse_mode="HTML"
             )
-            try:
-                await bot.send_message(message.from_user.id, ITEM_DESCRIPTIONS["vip"], parse_mode="HTML")
-            except Exception:
-                pass
             await bot.send_message(PURCHASES_LOG_ID,
-                f"👑 <b>VIP Activated</b>\n👤 {user_link(message.from_user.first_name or 'User', message.from_user.id)}",
+                f"👑 <b>VIP Activated</b>\n👤 {user_link(message.from_user.first_name or 'User', message.from_user.id)}\n"
+                f"⏳ Expires: {vip_fmt}",
                 parse_mode="HTML"
             )
             return
@@ -913,3 +933,116 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             f"✅ Public Bounty #{bounty_id} cancelled.\n<b>{bounty['reward']} pts</b> refunded to your balance.",
             parse_mode="HTML"
         )
+
+    # ── /profile ──────────────────────────────────────────────────────────
+    @dp.message(Command("profile"))
+    async def cmd_profile(message: Message):
+        await track_outburst(message, bot)
+        if await check_banned(message): return
+        if message.reply_to_message:
+            tg_user = message.reply_to_message.from_user
+            db_user = await get_user_by_tgid(tg_user.id)
+            if not db_user:
+                return await message.reply("❌ That user is not registered.")
+        else:
+            tg_user = message.from_user
+            await upsert_user(tg_user)
+            db_user = await get_user_by_tgid(tg_user.id)
+        await message.reply(await build_info_text(tg_user, db_user), parse_mode="HTML")
+
+    # ── /leaderboard_artists ──────────────────────────────────────────────
+    @dp.message(Command("leaderboard_artists"))
+    async def cmd_leaderboard_artists(message: Message):
+        await track_outburst(message, bot)
+        rows = await fetch_all(
+            f"SELECT telegram_id, first_name, username, artist_points, projects, is_vip "
+            f"FROM users WHERE telegram_id NOT IN ({','.join(str(a) for a in ADMINS)}) "
+            f"ORDER BY artist_points DESC LIMIT 10"
+        )
+        if not rows:
+            return await message.reply("No artists yet.")
+        medals = ["🥇", "🥈", "🥉"]
+        lines  = []
+        for i, row in enumerate(rows):
+            medal    = medals[i] if i < 3 else f"{i+1}."
+            vip_tag  = " 👑" if row["is_vip"] else ""
+            link     = user_link(row["first_name"], row["telegram_id"], row["username"])
+            rank_str = calculate_rank(row["artist_points"])
+            lines.append(
+                f"{medal} {link}{vip_tag}\n"
+                f"    🎨 <b>{row['artist_points']}</b> pts | {rank_str} | 🎬 {row['projects']} projects"
+            )
+        await message.reply(
+            "🎨 <b>TOP 10 — ARTIST POINTS</b>\n\n" + "\n\n".join(lines),
+            parse_mode="HTML"
+        )
+
+    # ── /achievements ─────────────────────────────────────────────────────
+    @dp.message(Command("achievements"))
+    async def cmd_achievements(message: Message):
+        await track_outburst(message, bot)
+        if await check_banned(message): return
+        await upsert_user(message.from_user)
+        user = await get_user_by_tgid(message.from_user.id)
+        now  = datetime.datetime.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S")
+        penalty_row = await fetch_one(
+            "SELECT COUNT(*) AS c FROM points_history WHERE user_id = ? AND change < 0 "
+            "AND reason LIKE '%Late penalty%' AND ts >= ?",
+            (user["id"], month_start)
+        )
+        no_penalties = penalty_row and penalty_row["c"] == 0
+
+        def ach(unlocked, icon, name, desc):
+            status = "✅" if unlocked else "🔒"
+            return f"{status} {icon} <b>{name}</b>\n    <i>{desc}</i>"
+
+        lines = [
+            "🏆 <b>YOUR ACHIEVEMENTS</b>\n",
+            "<b>— Badges —</b>",
+            ach(no_penalties and user["projects"] > 0, "🏅", "Clean Month", "No late penalties this month + 1 project"),
+            ach(user["checkin_streak"] >= 7, "🔥", "Streak Master", "7+ day check-in streak"),
+            ach(user["projects"] >= 5, "🎬", "Veteran", "5+ completed projects"),
+            ach(user["artist_points"] >= 500, "⭐", "High Earner", "500+ artist points"),
+            "",
+            "<b>— Milestones —</b>",
+            ach(user["tasks_on_time"] >= 3, "🎯", "Consistent", "3 tasks submitted on time"),
+            ach(user["checkin_streak"] >= 7, "📅", "Week Warrior", "7-day perfect streak"),
+            ach(no_penalties and user["projects"] > 0, "🛡", "Iron Discipline", "Full month with no penalties"),
+            "",
+            "<b>— Rank Progress —</b>",
+            f"🎨 Artist Points: <b>{user['artist_points']}</b>",
+            f"🏆 Current Rank: <b>{calculate_rank(user['artist_points'])}</b>",
+            f"🎬 Projects Done: <b>{user['projects']}</b>",
+            f"🔥 Streak: <b>{user['checkin_streak']}</b> days",
+        ]
+        await message.reply("\n".join(lines), parse_mode="HTML")
+
+    # ── /ratinghistory ────────────────────────────────────────────────────
+    @dp.message(Command("ratinghistory"))
+    async def cmd_ratinghistory(message: Message):
+        await track_outburst(message, bot)
+        if await check_banned(message): return
+        await upsert_user(message.from_user)
+        user = await get_user_by_tgid(message.from_user.id)
+        rows = await fetch_all(
+            "SELECT rating, artist_pts, bonus_pts, reviewed_at FROM rating_history "
+            "WHERE user_id = ? ORDER BY id DESC LIMIT 15",
+            (user["id"],)
+        )
+        if not rows:
+            return await message.reply("📭 No rating history yet. Complete your first project!")
+        RATING_EMOJI = {
+            "excellent": "⭐", "verygood": "💚", "average": "🟡",
+            "needimprovement": "🟠", "poor": "🔴"
+        }
+        lines = ["📋 <b>YOUR RATING HISTORY</b>\n"]
+        for row in rows:
+            emoji  = RATING_EMOJI.get(row["rating"], "📋")
+            bonus  = f" +{row['bonus_pts']} submit bonus" if row["bonus_pts"] else ""
+            lines.append(
+                f"{emoji} <b>{row['rating'].capitalize()}</b> — "
+                f"+{row['artist_pts']} artist pts{bonus}\n"
+                f"<i>{row['reviewed_at']}</i>"
+            )
+        await message.reply("\n\n".join(lines), parse_mode="HTML")
