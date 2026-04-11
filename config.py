@@ -1,9 +1,9 @@
 import os
 
 BOT_TOKEN        = os.environ.get("BOT_TOKEN", "8662673703:AAGPS77TnJei-acgWUMlW0zLn7MhrpXlrJQ")
-ADMINS           = [8061402854, 7141606933]
+ADMINS           = [8061402854, 7141606933, 5685840380]
 OWNER_ID         = 8061402854
-REVIEWER_IDS     = [8061402854, 7141606933]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
+REVIEWER_IDS     = [8061402854, 7141606933, 5685840380]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
 PRICE_MANAGER    = "tg_zomooroo"
 GROUP_ID         = -1002845931079
 PURCHASES_LOG_ID = -1003264076221
