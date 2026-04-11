@@ -10,6 +10,9 @@ from core.database import (
     upsert_user, get_user_by_tgid, get_user_by_username,
     log_points, get_fund_balance,
 )
+
+# In-memory pending broadcasts
+_pending_broadcasts: dict[int, str] = {}
 from core.helpers import (
     user_link, calculate_rank, parse_args, strip_at,
     is_admin, resolve_user, parse_duration, _fmt_duration,
@@ -111,28 +114,51 @@ def register_admin_handlers(dp: Dispatcher, bot: Bot):
     # ── Helper: finalize a review (award pts, remove work, log) ─────────────
     async def _finalize_review(user_id: int, tg_id: int, rating: str, pts: int,
                                submitted_on_time: bool, reviewer_link: str):
-        """Award points and close out the work. Submit bonus only if on time AND above poor."""
-        bonus = 5 if submitted_on_time and pts > 0 else 0
-        total = pts + bonus
-        if total > 0:
+        """Award artist points + remaining points. Submit bonus (+5) to remaining only."""
+        bonus      = 5 if submitted_on_time and pts > 0 else 0
+        total_rem  = pts + bonus   # goes to remaining + total
+        artist_pts = pts           # goes to artist_points only (no bonus)
+
+        if pts > 0:
             await execute(
-                "UPDATE users SET total_points = total_points + ?, remaining_points = remaining_points + ?, "
-                "projects = projects + 1 WHERE id = ?",
-                (total, total, user_id)
+                "UPDATE users SET "
+                "artist_points = artist_points + ?, "
+                "remaining_points = remaining_points + ?, "
+                "total_points = total_points + ?, "
+                "projects = projects + 1, "
+                "tasks_on_time = tasks_on_time + ? "
+                "WHERE id = ?",
+                (artist_pts, total_rem, total_rem, 1 if submitted_on_time else 0, user_id)
             )
         else:
             await execute("UPDATE users SET projects = projects + 1 WHERE id = ?", (user_id,))
+
         await execute("DELETE FROM works WHERE user_id = ?", (user_id,))
+
         reason = f"📋 Review: {rating}" + (f" +{bonus} submit bonus" if bonus else "")
-        if total > 0:
-            await log_points(user_id, total, reason)
+        if total_rem > 0:
+            await log_points(user_id, total_rem, reason)
+
+        # Log to rating_history
+        reviewed_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        reviewer_tg = 0
+        try:
+            reviewer_tg = int(reviewer_link.split('id=')[1].split('"')[0])
+        except Exception:
+            pass
+        await execute(
+            "INSERT INTO rating_history (user_id, rating, artist_pts, bonus_pts, reviewed_by, reviewed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, rating, artist_pts, bonus, reviewer_tg, reviewed_at)
+        )
+
         reviewed_link = await _user_link_from_id(user_id)
-        bonus_note = f" (+{bonus} submit bonus)" if bonus else ""
+        bonus_note    = f" (+{bonus} submit bonus)" if bonus else ""
         try:
             await bot.send_message(tg_id,
                 f"📋 <b>Work Reviewed: {rating.capitalize()}</b>\n"
-                f"{'🎉 <b>+' + str(total) + ' pts</b> awarded!' if total > 0 else '❌ No points awarded (poor rating).'}"
-                + (f"\n⚡ Includes +{bonus} pts on-time submit bonus!" if bonus else ""),
+                f"{'🎉 <b>+' + str(artist_pts) + ' artist pts</b> + <b>+' + str(total_rem) + ' remaining pts</b>!' if pts > 0 else '❌ No points awarded (poor rating).'}"
+                + (f"\n⚡ Includes +{bonus} pts on-time submit bonus to wallet!" if bonus else ""),
                 parse_mode="HTML"
             )
         except Exception:
@@ -140,7 +166,9 @@ def register_admin_handlers(dp: Dispatcher, bot: Bot):
         await bot.send_message(PURCHASES_LOG_ID,
             f"📋 <b>Work Reviewed</b>\n"
             f"👤 {reviewed_link}\n"
-            f"⭐ Rating: <b>{rating.capitalize()}</b> → <b>+{total} pts</b>{bonus_note}\n"
+            f"⭐ Rating: <b>{rating.capitalize()}</b>\n"
+            f"🎨 Artist Points: <b>+{artist_pts}</b>\n"
+            f"💰 Remaining Points: <b>+{total_rem}</b>{bonus_note}\n"
             f"👑 Reviewed by: {reviewer_link}\n"
             f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
             parse_mode="HTML"
@@ -861,3 +889,253 @@ def register_admin_handlers(dp: Dispatcher, bot: Bot):
                     )
                 except Exception:
                     pass
+
+    # ── /giveartist ───────────────────────────────────────────────────────
+    @dp.message(Command("giveartist"))
+    async def cmd_giveartist(message: Message):
+        if not is_admin(message.from_user.id): return
+        args = message.text.split()
+        user, extra_args = await resolve_user(message, args)
+        if not user:
+            return await message.reply("❌ User not found.")
+        if not extra_args:
+            return await message.reply("Usage: /giveartist @user &lt;amount&gt;", parse_mode="HTML")
+        try:
+            amount = int(extra_args[0])
+            if amount <= 0: raise ValueError
+        except ValueError:
+            return await message.reply("❌ Amount must be a positive integer.")
+        await execute(
+            "UPDATE users SET artist_points = artist_points + ? WHERE id = ?",
+            (amount, user["id"])
+        )
+        target_link = user_link(user["first_name"], user["telegram_id"], user["username"])
+        admin_link  = user_link(message.from_user.first_name or "Admin", message.from_user.id)
+        await message.reply(f"🎨 Gave <b>{amount} artist pts</b> to {target_link}.", parse_mode="HTML")
+        try:
+            await bot.send_message(user["telegram_id"],
+                f"🎨 <b>+{amount} Artist Points!</b>\nAn admin awarded you artist points. Check /profile.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        await bot.send_message(PURCHASES_LOG_ID,
+            f"🎨 <b>Artist Points Given</b>\n👤 {target_link} → +{amount} artist pts\n👑 By: {admin_link}",
+            parse_mode="HTML"
+        )
+
+    # ── /warnuser ─────────────────────────────────────────────────────────
+    @dp.message(Command("warnuser"))
+    async def cmd_warnuser(message: Message):
+        if not is_admin(message.from_user.id): return
+        args = message.text.split(maxsplit=3)
+        user, extra_args = await resolve_user(message, args)
+        if not user:
+            return await message.reply("❌ User not found.")
+        reason = " ".join(extra_args).strip() if extra_args else "No reason given"
+        now    = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        await execute(
+            "INSERT INTO warnings (user_id, reason, warned_by, warned_at) VALUES (?, ?, ?, ?)",
+            (user["id"], reason, message.from_user.id, now)
+        )
+        warn_count = await fetch_one(
+            "SELECT COUNT(*) AS c FROM warnings WHERE user_id = ?", (user["id"],)
+        )
+        count      = warn_count["c"] if warn_count else 1
+        target_link = user_link(user["first_name"], user["telegram_id"], user["username"])
+        admin_link  = user_link(message.from_user.first_name or "Admin", message.from_user.id)
+        await message.reply(
+            f"⚠️ <b>Warning #{count} issued</b> to {target_link}\n📝 Reason: {reason}",
+            parse_mode="HTML"
+        )
+        try:
+            await bot.send_message(user["telegram_id"],
+                f"⚠️ <b>Warning #{count}</b>\n\n"
+                f"You have received a warning from an admin.\n"
+                f"📝 Reason: <b>{reason}</b>\n\n"
+                f"Please follow the community rules to avoid further action.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        await bot.send_message(PURCHASES_LOG_ID,
+            f"⚠️ <b>Warning Issued</b>\n👤 {target_link} — Warning #{count}\n"
+            f"📝 {reason}\n👑 By: {admin_link}\n⏰ {now}",
+            parse_mode="HTML"
+        )
+        if count >= 3:
+            await message.reply(
+                f"🚨 <b>{target_link} now has {count} warnings!</b> Consider /ban.",
+                parse_mode="HTML"
+            )
+
+    # ── /warnings ─────────────────────────────────────────────────────────
+    @dp.message(Command("warnings"))
+    async def cmd_warnings(message: Message):
+        if not is_admin(message.from_user.id): return
+        args = message.text.split()
+        user, _ = await resolve_user(message, args)
+        if not user:
+            return await message.reply("❌ User not found.")
+        rows = await fetch_all(
+            "SELECT reason, warned_by, warned_at FROM warnings WHERE user_id = ? ORDER BY id DESC LIMIT 10",
+            (user["id"],)
+        )
+        from handlers.ai import ai_warn_count
+        ai_warns = ai_warn_count.get(user["telegram_id"], 0)
+        target_link = user_link(user["first_name"], user["telegram_id"], user["username"])
+        if not rows and ai_warns == 0:
+            return await message.reply(f"✅ {target_link} has no warnings.", parse_mode="HTML")
+        lines = [f"⚠️ <b>Warnings — {target_link}</b>\n"]
+        if ai_warns:
+            lines.append(f"🤖 AI Moderation warnings: <b>{ai_warns}</b>")
+        for i, row in enumerate(rows, 1):
+            lines.append(f"{i}. 📝 {row['reason']}\n   <i>{row['warned_at']}</i>")
+        await message.reply("\n\n".join(lines), parse_mode="HTML")
+
+    # ── /broadcast ────────────────────────────────────────────────────────
+    @dp.message(Command("broadcast"))
+    async def cmd_broadcast(message: Message):
+        if not is_admin(message.from_user.id): return
+        args = message.text.split(maxsplit=1)
+        if len(args) < 2:
+            return await message.reply("Usage: /broadcast &lt;message&gt;", parse_mode="HTML")
+        text = args[1].strip()
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Send to All", callback_data=f"bc_confirm:{message.from_user.id}"),
+            InlineKeyboardButton(text="❌ Cancel",      callback_data="bc_cancel"),
+        ]])
+        await message.reply(
+            f"📢 <b>Broadcast Preview</b>\n\n{text}\n\n"
+            f"<i>This will be sent to all non-banned users. Confirm?</i>",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+        # Store pending broadcast
+        _pending_broadcasts[message.from_user.id] = text
+
+    @dp.callback_query(F.data.startswith("bc_confirm:"))
+    async def cb_broadcast_confirm(callback: CallbackQuery):
+        admin_id = int(callback.data.split(":")[1])
+        if callback.from_user.id != admin_id or not is_admin(callback.from_user.id):
+            return await callback.answer("❌ Not your button.", show_alert=True)
+        text = _pending_broadcasts.pop(admin_id, None)
+        if not text:
+            return await callback.answer("❌ Broadcast expired.", show_alert=True)
+        await callback.message.edit_text("📤 <b>Broadcasting...</b>", parse_mode="HTML")
+        await callback.answer()
+        users = await fetch_all("SELECT telegram_id FROM users WHERE is_banned = 0")
+        sent = failed = 0
+        for u in users:
+            try:
+                await bot.send_message(u["telegram_id"],
+                    f"📢 <b>Announcement</b>\n\n{text}", parse_mode="HTML"
+                )
+                sent += 1
+                import asyncio as _asyncio
+                await _asyncio.sleep(0.05)
+            except Exception:
+                failed += 1
+        await callback.message.edit_text(
+            f"✅ <b>Broadcast Complete</b>\n✉️ Sent: {sent} | ❌ Failed: {failed}",
+            parse_mode="HTML"
+        )
+
+    @dp.callback_query(F.data == "bc_cancel")
+    async def cb_broadcast_cancel(callback: CallbackQuery):
+        _pending_broadcasts.pop(callback.from_user.id, None)
+        await callback.message.edit_text("❌ Broadcast cancelled.")
+        await callback.answer()
+
+    # ── /setdeadline ──────────────────────────────────────────────────────
+    @dp.message(Command("setdeadline"))
+    async def cmd_setdeadline(message: Message):
+        if not is_admin(message.from_user.id): return
+        args = message.text.split()
+        user, extra_args = await resolve_user(message, args)
+        if not user:
+            return await message.reply("❌ User not found.")
+        if not extra_args:
+            return await message.reply(
+                "Usage: /setdeadline @user &lt;duration&gt; (e.g. 2d, 12h, 1d6h)",
+                parse_mode="HTML"
+            )
+        td = parse_duration(extra_args[0])
+        if not td:
+            return await message.reply("❌ Invalid duration. Examples: 2d, 12h, 1d6h")
+        work = await fetch_one("SELECT id FROM works WHERE user_id = ?", (user["id"],))
+        if not work:
+            return await message.reply("❌ This user has no active work.")
+        new_deadline = (datetime.datetime.now() + td).isoformat()
+        deadline_fmt = (datetime.datetime.now() + td).strftime("%Y-%m-%d %H:%M")
+        await execute(
+            "UPDATE works SET deadline = ?, penalty_days = 0, last_penalty_at = NULL WHERE id = ?",
+            (new_deadline, work["id"])
+        )
+        target_link = user_link(user["first_name"], user["telegram_id"], user["username"])
+        await message.reply(
+            f"✅ Deadline updated for {target_link}\n⏰ New deadline: <b>{deadline_fmt}</b>",
+            parse_mode="HTML"
+        )
+        try:
+            await bot.send_message(user["telegram_id"],
+                f"⏰ <b>Deadline Updated</b>\n\nAn admin changed your deadline.\n"
+                f"New deadline: <b>{deadline_fmt}</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    # ── /topwork ──────────────────────────────────────────────────────────
+    @dp.message(Command("topwork"))
+    async def cmd_topwork(message: Message):
+        if not is_admin(message.from_user.id): return
+        now         = datetime.datetime.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0).strftime("%Y-%m-%d %H:%M")
+        rows = await fetch_all(
+            "SELECT u.first_name, u.telegram_id, u.username, u.artist_points, u.projects, "
+            "COUNT(rh.id) AS month_reviews "
+            "FROM users u "
+            "LEFT JOIN rating_history rh ON rh.user_id = u.id AND rh.reviewed_at >= ? "
+            "AND rh.rating != 'poor' "
+            f"WHERE u.telegram_id NOT IN ({','.join(str(a) for a in ADMINS)}) "
+            "GROUP BY u.id ORDER BY month_reviews DESC, u.artist_points DESC LIMIT 10",
+            (month_start,)
+        )
+        if not rows:
+            return await message.reply("No data yet.")
+        medals = ["🥇", "🥈", "🥉"]
+        lines  = [f"🏅 <b>TOP PERFORMERS — {now.strftime('%B %Y')}</b>\n"]
+        for i, row in enumerate(rows):
+            medal = medals[i] if i < 3 else f"{i+1}."
+            link  = user_link(row["first_name"], row["telegram_id"], row["username"])
+            lines.append(
+                f"{medal} {link}\n"
+                f"    📋 {row['month_reviews']} reviews this month | "
+                f"🎨 {row['artist_points']} total artist pts"
+            )
+        await message.reply("\n\n".join(lines), parse_mode="HTML")
+
+    # ── /status ───────────────────────────────────────────────────────────
+    @dp.message(Command("status"))
+    async def cmd_status(message: Message):
+        if not is_admin(message.from_user.id): return
+        total_users   = await fetch_one("SELECT COUNT(*) AS c FROM users")
+        active_works  = await fetch_one("SELECT COUNT(*) AS c FROM works WHERE submitted = 0")
+        pending_rev   = await fetch_one("SELECT COUNT(*) AS c FROM works WHERE submitted = 1")
+        banned_users  = await fetch_one("SELECT COUNT(*) AS c FROM users WHERE is_banned = 1")
+        vip_users     = await fetch_one("SELECT COUNT(*) AS c FROM users WHERE is_vip = 1")
+        open_bounties = await fetch_one("SELECT COUNT(*) AS c FROM pbounties WHERE status = 'open'")
+        fund          = await get_fund_balance()
+        await message.reply(
+            f"⚙️ <b>BOT STATUS</b>\n\n"
+            f"👥 Total Users: <b>{total_users['c']}</b>\n"
+            f"🚫 Banned: <b>{banned_users['c']}</b>\n"
+            f"👑 VIP: <b>{vip_users['c']}</b>\n\n"
+            f"🎬 Active Works: <b>{active_works['c']}</b>\n"
+            f"📥 Pending Reviews: <b>{pending_rev['c']}</b>\n"
+            f"🎯 Open Bounties: <b>{open_bounties['c']}</b>\n\n"
+            f"💰 Community Fund: <b>{fund} pts</b>\n"
+            f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            parse_mode="HTML"
+        )
