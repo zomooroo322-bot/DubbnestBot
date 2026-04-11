@@ -10,10 +10,11 @@ from core.database import init_db, fetch_one, execute
 from core.scheduler import start_scheduler
 from core.helpers import user_link
 
-from handlers.ai     import register_ai_handlers,     moderate_message
-from handlers.users  import register_user_handlers
-from handlers.admins import register_admin_handlers
-from handlers.bounty import register_bounty_handlers
+from handlers.ai      import register_ai_handlers,     moderate_message
+from handlers.users   import register_user_handlers
+from handlers.admins  import register_admin_handlers
+from handlers.bounty  import register_bounty_handlers
+from handlers.classes import register_class_handlers
 
 # ── Bot + Dispatcher ──────────────────────────────────────────────────────
 bot = Bot(BOT_TOKEN)
@@ -166,6 +167,7 @@ register_ai_handlers(dp, bot)
 register_user_handlers(dp, bot)
 register_admin_handlers(dp, bot)
 register_bounty_handlers(dp, bot)
+register_class_handlers(dp, bot)
 
 # ── Entry point ───────────────────────────────────────────────────────────
 async def main():
