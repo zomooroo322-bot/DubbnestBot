@@ -217,3 +217,78 @@ async def start_scheduler(bot: Bot):
                 )
             except Exception:
                 pass
+
+        # ── Milestone auto-rewards ──
+        milestone_users = await fetch_all(
+            "SELECT id, telegram_id, tasks_on_time, checkin_streak, penalties_received, "
+            "remaining_points, total_points, last_milestone_3, last_milestone_week, last_milestone_month "
+            "FROM users WHERE telegram_id IS NOT NULL"
+        )
+        for u in milestone_users:
+            uid = u["id"]
+            # 3 tasks on time → +10 remaining
+            if u["tasks_on_time"] > 0 and u["tasks_on_time"] % 3 == 0:
+                last = u["last_milestone_3"]
+                mark = f"tasks_{u['tasks_on_time']}"
+                if last != mark:
+                    await execute(
+                        "UPDATE users SET remaining_points = remaining_points + 10, "
+                        "total_points = total_points + 10, last_milestone_3 = ? WHERE id = ?",
+                        (mark, uid)
+                    )
+                    await log_points(uid, 10, "🎯 Milestone: 3 tasks on time")
+                    try:
+                        await bot.send_message(u["telegram_id"],
+                            "🎯 <b>Milestone Unlocked!</b>\n\n"
+                            "You submitted 3 tasks on time!\n<b>+10 pts</b> bonus added!",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+            # 7-day streak milestone → +20 remaining (tracked separately from checkin bonus)
+            if u["checkin_streak"] >= 7:
+                last = u["last_milestone_week"]
+                week_mark = f"week_{u['checkin_streak'] // 7}"
+                if last != week_mark:
+                    await execute(
+                        "UPDATE users SET remaining_points = remaining_points + 20, "
+                        "total_points = total_points + 20, last_milestone_week = ? WHERE id = ?",
+                        (week_mark, uid)
+                    )
+                    await log_points(uid, 20, "📅 Milestone: 7-day streak")
+                    try:
+                        await bot.send_message(u["telegram_id"],
+                            "📅 <b>Milestone Unlocked!</b>\n\n"
+                            "7-day check-in streak achieved!\n<b>+20 pts</b> bonus added!",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+            # 1 month no penalties → +100 remaining
+            month_start = datetime.datetime.now().replace(
+                day=1, hour=0, minute=0, second=0
+            ).strftime("%Y-%m-%d %H:%M:%S")
+            penalty_row = await fetch_all(
+                "SELECT COUNT(*) AS c FROM points_history WHERE user_id = ? "
+                "AND change < 0 AND reason LIKE '%Late penalty%' AND ts >= ?",
+                (uid, month_start)
+            )
+            no_pen = penalty_row and penalty_row[0]["c"] == 0
+            month_mark = datetime.datetime.now().strftime("%Y-%m")
+            if no_pen and u["last_milestone_month"] != month_mark and u.get("projects", 0) > 0:
+                # Only award once per month, at end of month check
+                if datetime.datetime.now().day >= 28:
+                    await execute(
+                        "UPDATE users SET remaining_points = remaining_points + 100, "
+                        "total_points = total_points + 100, last_milestone_month = ? WHERE id = ?",
+                        (month_mark, uid)
+                    )
+                    await log_points(uid, 100, "🛡 Milestone: 1 month no penalties")
+                    try:
+                        await bot.send_message(u["telegram_id"],
+                            "🛡 <b>Milestone Unlocked!</b>\n\n"
+                            "Full month with no late penalties!\n<b>+100 pts</b> bonus added!",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
