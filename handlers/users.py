@@ -115,7 +115,8 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
                 parse_mode="HTML"
             )
         await message.reply(
-            "👋 Hi, I'm <b>Dubbnest BOT!</b>\n\nSee what you can do: /commands",
+            "👋 Hi, I'm <b>Dubbnest BOT!</b>\n\nSee what you can do: /commands
+            Need Help? - /help",
             parse_mode="HTML"
         )
 
@@ -166,30 +167,7 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             "/cancel_pbounty &lt;id&gt; — Cancel your open public bounty\n"
             "/history — Your points history (last 20)\n"
             "/rules — Point rules & system\n\n"
-            "👑 <b>ADMIN COMMANDS</b>\n"
-            "/givework @user 3d  or  2d12h  or  6h  (reply to file)\n"
-            "/removework @user  or reply + /removework\n"
-            "/givepoints @user &lt;amount&gt;\n"
-            "/removepoints @user &lt;amount&gt;\n"
-            "/speciality @user &lt;speciality&gt;\n"
-            "/review @user &lt;rating&gt;\n"
-            "/resetstreak @user\n"
-            "/resetwarning @user\n"
-            "/resetpoints @user\n"
-            "/ban @user — Ban user\n"
-            "/unban @user — Unban user\n"
-            "/remind @user [msg]\n"
-            "/announce &lt;msg&gt;\n"
-            "/pendingworks\n"
-            "/pendingreviews\n"
-            "/activeusers\n"
-            "/deleteuser @user\n"
-            "/toggleai — Toggle AI moderation\n"
-            "/report — Full bot report\n"
-            "/bounty_success &lt;id&gt;\n"
-            "/pbounty_success &lt;id&gt;\n"
-            "/pbounty_cancel &lt;id&gt;\n"
-            "/setprice &lt;item&gt; &lt;price&gt; — (Zomooroo only)",
+            ,
             parse_mode="HTML"
         )
 
