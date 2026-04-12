@@ -104,21 +104,20 @@ async def build_stats_text(tg_user, db_user) -> str:
 # ═════════════════════════════════════════════════════════════════════════
 def register_user_handlers(dp: Dispatcher, bot: Bot):
 
-    @dp.message(Command("start"))
-    async def cmd_start(message: Message):
-        await track_outburst(message, bot)
-        await upsert_user(message.from_user)
-        user = await get_user_by_tgid(message.from_user.id)
-        if user and user["is_banned"]:
-            return await message.reply(
-                "🚫 <b>You are banned from Dubbnest.</b>\nContact an admin if you think this is a mistake.",
-                parse_mode="HTML"
-            )
-        await message.reply(
-            "👋 Hi, I'm <b>Dubbnest BOT!</b>\n\nSee what you can do: /commands
-            Need Help? - /help",
+  @dp.message(Command("start"))
+async def cmd_start(message: Message):
+    await track_outburst(message, bot)
+    await upsert_user(message.from_user)
+    user = await get_user_by_tgid(message.from_user.id)
+    if user and user["is_banned"]:
+        return await message.reply(
+            "🚫 <b>You are banned from Dubbnest.</b>\nContact an admin if you think this is a mistake.",
             parse_mode="HTML"
         )
+    await message.reply(
+        "👋 Hi, I'm <b>Dubbnest BOT!</b>\n\nSee what you can do: /commands\nNeed Help? — /help",
+        parse_mode="HTML"
+    )
 
     @dp.message(Command("help"))
     async def cmd_help(message: Message):
