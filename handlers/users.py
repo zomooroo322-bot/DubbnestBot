@@ -89,6 +89,7 @@ async def build_stats_text(tg_user, db_user) -> str:
     link    = user_link(tg_user.first_name or "User", tg_user.id)
     return (
         f"📊 <b>STATS — {link}{vip_tag}</b>\n\n"
+        f"🎨 Artist Points: <b>{db_user['artist_points']}</b>\n"
         f"⭐ Total Points Earned: <b>{db_user['total_points']}</b>\n"
         f"💰 Remaining Points: <b>{db_user['remaining_points']}</b>\n"
         f"💸 Points Spent: <b>{spent}</b>\n"
@@ -104,20 +105,20 @@ async def build_stats_text(tg_user, db_user) -> str:
 # ═════════════════════════════════════════════════════════════════════════
 def register_user_handlers(dp: Dispatcher, bot: Bot):
 
-  @dp.message(Command("start"))
-async def cmd_start(message: Message):
-    await track_outburst(message, bot)
-    await upsert_user(message.from_user)
-    user = await get_user_by_tgid(message.from_user.id)
-    if user and user["is_banned"]:
-        return await message.reply(
-            "🚫 <b>You are banned from Dubbnest.</b>\nContact an admin if you think this is a mistake.",
+    @dp.message(Command("start"))
+    async def cmd_start(message: Message):
+        await track_outburst(message, bot)
+        await upsert_user(message.from_user)
+        user = await get_user_by_tgid(message.from_user.id)
+        if user and user["is_banned"]:
+            return await message.reply(
+                "🚫 <b>You are banned from Dubbnest.</b>\nContact an admin if you think this is a mistake.",
+                parse_mode="HTML"
+            )
+        await message.reply(
+            "👋 Hi, I'm <b>Dubbnest BOT!</b>\n\nSee what you can do: /commands\nNeed Help? — /help",
             parse_mode="HTML"
         )
-    await message.reply(
-        "👋 Hi, I'm <b>Dubbnest BOT!</b>\n\nSee what you can do: /commands\nNeed Help? — /help",
-        parse_mode="HTML"
-    )
 
     @dp.message(Command("help"))
     async def cmd_help(message: Message):
@@ -141,32 +142,30 @@ async def cmd_start(message: Message):
     async def cmd_commands(message: Message):
         await track_outburst(message, bot)
         await message.reply(
-            "📜 <b>MEMBER COMMANDS</b>\n"
+            "📜 <b>MEMBER COMMANDS</b>\n\n"
             "/start — Register\n"
-            "/info — Your profile\n"
+            "/profile — Your profile\n"
             "/mywork — Current assignment\n"
             "/submit — Submit work\n"
             "/checkin — Daily check-in (+5 pts)\n"
+            "/top — Artist leaderboard\n"
+            "/leaderboard_artists — Top 10 by artist points\n"
+            "/achievements — Your badges & milestones\n"
+            "/ratinghistory — Your past reviews\n"
+            "/stats — Your statistics\n"
+            "/history — Points history\n"
             "/shop — Browse store\n"
-            "/iteminfo &lt;item&gt; — Details about an item\n"
+            "/iteminfo &lt;item&gt; — Item details\n"
             "/buy &lt;item&gt; — Purchase item\n"
             "/inv — Your inventory\n"
             "/use &lt;item&gt; — Use an item\n"
-            "/bounty @user &lt;amount&gt; — Private bounty request\n"
-            "/pbounty — Create a public bounty (reply to video)\n"
-            "/market — Browse listings\n"
-            "/market list &lt;item&gt; &lt;price&gt; — List for sale\n"
-            "/market buy &lt;id&gt; — Buy a listing\n"
-            "/market cancel &lt;id&gt; — Cancel listing\n"
-            "/top — Leaderboard\n"
-            "/stats — Your statistics\n"
-            "/ask &lt;question&gt; — Chat with Nexus AI 👑 VIP only\n"
-            "/askreset — Clear your Nexus conversation history\n"
+            "/bounty @user &lt;amount&gt; — Private bounty\n"
+            "/pbounty — Public bounty (reply to video)\n"
+            "/market — Marketplace\n"
             "/mybounties — Your bounty history\n"
-            "/cancel_pbounty &lt;id&gt; — Cancel your open public bounty\n"
-            "/history — Your points history (last 20)\n"
-            "/rules — Point rules & system\n\n"
-            ,
+            "/ask &lt;question&gt; — Nexus AI 👑 VIP only\n"
+            "/askreset — Clear Nexus AI history\n"
+            "/rules — Point system rules\n",
             parse_mode="HTML"
         )
 
@@ -174,71 +173,56 @@ async def cmd_start(message: Message):
     async def cmd_rules(message: Message):
         await track_outburst(message, bot)
         await message.reply(
-            "📋 <b>POINT SYSTEM — HOW IT WORKS</b>\n"
-            "\n"
+            "📋 <b>POINT SYSTEM — HOW IT WORKS</b>\n\n"
             "━━━━━━━━━━━━━━━━\n"
-            "✅ <b>HOW TO EARN POINTS</b>\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "\n"
-            "🎬 <b>Project Reviews</b>\n"
-            "  • Poor → <b>+0 pts</b>\n"
-            "  • Average → <b>+6 pts</b>\n"
-            "  • Very Good → <b>+8 pts</b>\n"
-            "  • Excellent → <b>+10 pts</b>\n"
-            "\n"
-            "🔥 <b>Daily Check-in</b> (/checkin)\n"
-            "  • Check in every day → <b>+5 pts</b>\n"
-            "  • 7-day streak bonus → <b>+20 pts extra</b>\n"
-            "  • Miss a day and your streak resets!\n"
-            "\n"
-            "🎁 <b>Admin Bonuses</b>\n"
-            "  • Admins can grant bonus points anytime\n"
-            "\n"
-            "💰 <b>Market Sales</b>\n"
-            "  • Sell items to other members via /market\n"
-            "\n"
+            "✅ <b>HOW TO EARN</b>\n"
+            "━━━━━━━━━━━━━━━━\n\n"
+            "🎨 <b>Artist Points</b> (dubbing only, never decreases)\n"
+            "  • Excellent → <b>+10 artist pts</b>\n"
+            "  • Very Good → <b>+8 artist pts</b>\n"
+            "  • Average → <b>+6 artist pts</b>\n"
+            "  • Need Improvement → <b>+4 artist pts</b>\n"
+            "  • Poor → <b>0 pts</b>\n\n"
+            "💰 <b>Remaining Points</b> (wallet)\n"
+            "  • Project review → same as artist pts\n"
+            "  • On-time submit bonus → <b>+5 pts</b>\n"
+            "  • Daily check-in → <b>+5 pts</b>\n"
+            "  • 7-day streak bonus → <b>+20 pts</b>\n"
+            "  • Class attendance → <b>+1 to +6 pts</b>\n\n"
+            "🎯 <b>Milestones</b>\n"
+            "  • 3 tasks on time → <b>+10 pts</b>\n"
+            "  • 7-day streak → <b>+20 pts</b>\n"
+            "  • 1 month no penalties → <b>+100 pts</b>\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "❌ <b>HOW POINTS ARE LOST</b>\n"
+            "━━━━━━━━━━━━━━━━\n\n"
+            "  • Shop purchases\n"
+            "  • Late submission → <b>-15 pts/day</b>\n"
+            "  • AI moderation warning → <b>-20 pts</b>\n\n"
             "━━━━━━━━━━━━━━━━\n"
-            "\n"
-            "🛒 <b>Shop Purchases</b> — buying from /shop\n"
-            "\n"
-            "⚠️ <b>Late Submission Penalty</b>\n"
-            "  • Miss deadline → <b>-15 pts per day</b>\n"
-            "  • Max 10 days then work is force-removed\n"
-            "\n"
-            "🤖 <b>AI Moderation</b>\n"
-            "  • Misbehaviour → public warning + <b>-20 pts</b>\n"
-            "  • 3rd+ violation → admins notified\n"
-            "\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "🏆 <b>RANKS</b>\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "\n"
-            "  0 pts → Beginner\n"
-            "  100 pts → On Watch\n"
-            "  170 pts → Active Member\n"
-            "  300 pts → Skilled Artist\n"
-            "  750 pts → Star Artist\n"
-            "  1050 pts → Elite Voice\n"
-            "\n"
+            "🏆 <b>RANKS</b> (by Artist Points)\n"
+            "━━━━━━━━━━━━━━━━\n\n"
+            "  0 → 🌱 Beginner\n"
+            "  100 → 👀 On Watch\n"
+            "  170 → ✅ Active Member\n"
+            "  300 → 🎨 Skilled Artist\n"
+            "  750 → ⭐ Star Artist\n"
+            "  1050 → 🏆 Elite Dubber\n\n"
             "━━━━━━━━━━━━━━━━\n"
             "🏅 <b>BADGES</b>\n"
+            "━━━━━━━━━━━━━━━━\n\n"
+            "  🏅 Clean Month — no late penalties + 1 project\n"
+            "  🔥 Streak Master — 7+ day streak\n"
+            "  🎬 Veteran — 5+ projects\n"
+            "  ⭐ High Earner — 500+ artist points\n\n"
             "━━━━━━━━━━━━━━━━\n"
-            "\n"
-            "  🏅 Clean Month — no late penalties this month\n"
-            "  🔥 Streak Master — 7+ day check-in streak\n"
-            "  🎬 Veteran — 5+ completed projects\n"
-            "  ⭐ High Earner — 500+ total points earned\n"
-            "\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "👑 <b>VIP PERKS</b>\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "\n"
+            "👑 <b>VIP PERKS</b> (14 days)\n"
+            "━━━━━━━━━━━━━━━━\n\n"
             "  • 👑 VIP tag on profile & leaderboard\n"
-            "  • 🔒 Steal immunity for 7 days\n"
-            "  • 🎙 1x free 10-min VC with admin\n"
-            "  • ⚡ 1x priority review\n",
+            "  • 🤖 Access to Nexus AI\n"
+            "  • 🎙 2x 10-min VC with admin\n"
+            "  • ⚡ 1x priority review\n"
+            "  • 📚 Clip library access\n",
             parse_mode="HTML"
         )
 
@@ -275,11 +259,7 @@ async def cmd_start(message: Message):
             "checkin_streak = ?, last_checkin = ? WHERE id = ?",
             (pts_total, pts_total, streak, today.isoformat(), user["id"])
         )
-        streak_label = f" (streak {streak})" if not bonus else " (7-day streak bonus!)"
-        await log_points(user["id"], pts_total, f"✅ Daily check-in{streak_label}")
-        # Milestone: 7-day streak bonus (remaining only, not artist)
-        if bonus:
-            await log_points(user["id"], bonus, "🔥 7-day streak milestone bonus")
+        await log_points(user["id"], pts_total, f"✅ Daily check-in (streak {streak})")
         msg = (
             f"✅ <b>Check-in!</b>\n\n"
             f"🔥 Streak: <b>{streak}</b> day(s)\n"
@@ -368,24 +348,25 @@ async def cmd_start(message: Message):
         item = args[1].lower()
         if item not in STORE:
             return await message.reply("❌ Item not found. Use /shop to see all items.")
-        desc  = ITEM_DESCRIPTIONS.get(item, "No description available.")
-        emoji = ITEM_EMOJI.get(item, "📦")
-        cost  = STORE[item]
+        desc   = ITEM_DESCRIPTIONS.get(item, "No description available.")
+        emoji  = ITEM_EMOJI.get(item, "📦")
+        cost   = STORE[item]
         extras = ""
         if item == "vip":
             extras = (
                 "\n\n<b>Perks:</b>\n"
-                "• 👑 VIP tag shown in /info and /top\n"
-                "• 🔒 7-day steal immunity\n"
-                "• 🎙 1x free 10-min VC with admin\n"
-                "• ⚡ 1x priority review free\n"
-                "• Can be sold on /market"
+                "• 👑 VIP tag on profile & leaderboard\n"
+                "• 🤖 Access to Nexus AI\n"
+                "• 🎙 2x 10-min VC with admin\n"
+                "• ⚡ 1x priority review\n"
+                "• 📚 Clip library access\n"
+                "• Duration: 14 days"
             )
         elif item == "deadline_extension":
             extras = (
                 "\n\n<b>Details:</b>\n"
-                "• ⏳ Adds 1 extra day to your current work deadline\n"
-                "• No penalty charged for the extended day\n"
+                "• ⏳ Adds 1 extra day to your deadline\n"
+                "• No penalty for the extra day\n"
                 "• Use /use deadline_extension to activate"
             )
         await message.reply(
@@ -490,11 +471,9 @@ async def cmd_start(message: Message):
                 "UPDATE users SET is_vip = 1, vip_expires_at = ?, items_used = items_used + 1 WHERE id = ?",
                 (vip_expires, user["id"])
             )
-            # Add 2x VC sessions + 1x priority review to inventory
             await add_to_inventory(user["id"], "admins_voices")
             await add_to_inventory(user["id"], "admins_voices")
             await add_to_inventory(user["id"], "priority_review")
-            # Arm clip library access
             now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await execute(
                 "INSERT INTO clip_approved (telegram_id, approved_at) VALUES (?, ?) "
@@ -591,7 +570,6 @@ async def cmd_start(message: Message):
         parts = message.text.split(maxsplit=3)
         sub   = parts[1].lower() if len(parts) >= 2 else "browse"
 
-        # Lock market list and buy behind 100pts threshold
         if sub in ("list", "buy"):
             await upsert_user(message.from_user)
             _u = await get_user_by_tgid(message.from_user.id)
@@ -758,21 +736,20 @@ async def cmd_start(message: Message):
         user = await get_user_by_tgid(message.from_user.id)
         work = await fetch_one("SELECT * FROM works WHERE user_id = ?", (user["id"],))
         if not work:
-            return await message.reply("✅ You have no active work to submit.")
+            return await message.reply("❌ You have no active work to submit.")
         if work["submitted"]:
             return await message.reply(
-                "⏳ You've already submitted this work. Waiting for admin review.\nUse /mywork to see your current assignment."
+                "⏳ Already submitted. Waiting for admin review.\nUse /mywork to see your assignment."
             )
-        now         = datetime.datetime.now()
-        deadline    = datetime.datetime.fromisoformat(work["deadline"])
-        late        = now > deadline
-
+        now      = datetime.datetime.now()
+        deadline = datetime.datetime.fromisoformat(work["deadline"])
+        late     = now > deadline
         await execute("UPDATE works SET submitted = 1 WHERE user_id = ?", (user["id"],))
         if late:
             await message.reply(
                 f"⚠️ <b>Submitted after deadline.</b>\n"
-                f"Penalties already applied: <b>{work['penalty_days']} day(s) × -15 pts</b>\n"
-                f"No further penalties. Waiting for admin review.",
+                f"Penalties applied: <b>{work['penalty_days']} day(s) × -15 pts</b>\n"
+                f"Waiting for admin review.",
                 parse_mode="HTML"
             )
         else:
@@ -794,19 +771,17 @@ async def cmd_start(message: Message):
             f"👑 {reviewer_tags} — please review!"
         )
         rep = message.reply_to_message
-        async def _send_to(chat_id):
-            try:
-                if rep.video:
-                    await bot.send_video(chat_id, rep.video.file_id, caption=notify_text, parse_mode="HTML")
-                elif rep.audio:
-                    await bot.send_audio(chat_id, rep.audio.file_id, caption=notify_text, parse_mode="HTML")
-                elif rep.voice:
-                    await bot.send_voice(chat_id, rep.voice.file_id, caption=notify_text, parse_mode="HTML")
-                else:
-                    await bot.send_message(chat_id, notify_text, parse_mode="HTML")
-            except Exception:
-                await bot.send_message(chat_id, notify_text, parse_mode="HTML")
-        await _send_to(PURCHASES_LOG_ID)
+        try:
+            if rep.video:
+                await bot.send_video(PURCHASES_LOG_ID, rep.video.file_id, caption=notify_text, parse_mode="HTML")
+            elif rep.audio:
+                await bot.send_audio(PURCHASES_LOG_ID, rep.audio.file_id, caption=notify_text, parse_mode="HTML")
+            elif rep.voice:
+                await bot.send_voice(PURCHASES_LOG_ID, rep.voice.file_id, caption=notify_text, parse_mode="HTML")
+            else:
+                await bot.send_message(PURCHASES_LOG_ID, notify_text, parse_mode="HTML")
+        except Exception:
+            await bot.send_message(PURCHASES_LOG_ID, notify_text, parse_mode="HTML")
 
     @dp.message(Command("staffs"))
     async def cmd_staffs(message: Message):
@@ -826,8 +801,6 @@ async def cmd_start(message: Message):
             "<i>Mixing Engineer, IT Director, Library Manager</i>\n\n"
             "𝗠𝗔𝗥𝗬 ✦\n"
             "<i>GFX Director, Upload Director, Chaos Control, Ad Manager</i>\n\n"
-            "???\n"
-            "<i>Security</i>\n\n"
             "━━━━━━━━━━━━━━━━",
             parse_mode="HTML"
         )
@@ -849,8 +822,8 @@ async def cmd_start(message: Message):
             "WHERE b.performer_id = ? ORDER BY b.id DESC LIMIT 10", (user["id"],)
         )
         pub_sent = await fetch_all(
-            "SELECT id, reward, status, voice_gender, voice_type, deadline_days "
-            "FROM pbounties WHERE requester_id = ? ORDER BY id DESC LIMIT 10", (user["id"],)
+            "SELECT id, reward, status, voice_gender, voice_type FROM pbounties "
+            "WHERE requester_id = ? ORDER BY id DESC LIMIT 10", (user["id"],)
         )
         pub_recv = await fetch_all(
             "SELECT pb.id, pb.reward, pb.status, pb.voice_gender, pb.voice_type, "
@@ -898,7 +871,7 @@ async def cmd_start(message: Message):
             "SELECT * FROM pbounties WHERE id = ? AND status = 'open'", (bounty_id,)
         )
         if not bounty:
-            return await message.reply("❌ Bounty not found or no longer open. Only open bounties can be cancelled.")
+            return await message.reply("❌ Bounty not found or no longer open.")
         if bounty["requester_id"] != user["id"]:
             return await message.reply("❌ You can only cancel your own bounties.")
         await execute(
@@ -907,11 +880,10 @@ async def cmd_start(message: Message):
         )
         await execute("UPDATE pbounties SET status = 'cancelled' WHERE id = ?", (bounty_id,))
         await message.reply(
-            f"✅ Public Bounty #{bounty_id} cancelled.\n<b>{bounty['reward']} pts</b> refunded to your balance.",
+            f"✅ Public Bounty #{bounty_id} cancelled.\n<b>{bounty['reward']} pts</b> refunded.",
             parse_mode="HTML"
         )
 
-    # ── /profile ──────────────────────────────────────────────────────────
     @dp.message(Command("profile"))
     async def cmd_profile(message: Message):
         await track_outburst(message, bot)
@@ -927,7 +899,6 @@ async def cmd_start(message: Message):
             db_user = await get_user_by_tgid(tg_user.id)
         await message.reply(await build_info_text(tg_user, db_user), parse_mode="HTML")
 
-    # ── /leaderboard_artists ──────────────────────────────────────────────
     @dp.message(Command("leaderboard_artists"))
     async def cmd_leaderboard_artists(message: Message):
         await track_outburst(message, bot)
@@ -954,7 +925,6 @@ async def cmd_start(message: Message):
             parse_mode="HTML"
         )
 
-    # ── /achievements ─────────────────────────────────────────────────────
     @dp.message(Command("achievements"))
     async def cmd_achievements(message: Message):
         await track_outburst(message, bot)
@@ -995,7 +965,6 @@ async def cmd_start(message: Message):
         ]
         await message.reply("\n".join(lines), parse_mode="HTML")
 
-    # ── /ratinghistory ────────────────────────────────────────────────────
     @dp.message(Command("ratinghistory"))
     async def cmd_ratinghistory(message: Message):
         await track_outburst(message, bot)
@@ -1015,8 +984,8 @@ async def cmd_start(message: Message):
         }
         lines = ["📋 <b>YOUR RATING HISTORY</b>\n"]
         for row in rows:
-            emoji  = RATING_EMOJI.get(row["rating"], "📋")
-            bonus  = f" +{row['bonus_pts']} submit bonus" if row["bonus_pts"] else ""
+            emoji = RATING_EMOJI.get(row["rating"], "📋")
+            bonus = f" +{row['bonus_pts']} submit bonus" if row["bonus_pts"] else ""
             lines.append(
                 f"{emoji} <b>{row['rating'].capitalize()}</b> — "
                 f"+{row['artist_pts']} artist pts{bonus}\n"
