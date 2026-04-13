@@ -23,12 +23,26 @@ async def start_scheduler(bot: Bot):
             try:
                 await bot.send_message(u["telegram_id"],
                     "👑 <b>VIP Expired</b>\n\n"
-                    "Your 7-day VIP has ended. Steal protection is no longer active.\n"
+                    "Your 14-day VIP has ended.\n"
+                    "📚 Clip Library access has also expired — an admin will remove you shortly.\n\n"
                     "Buy a new VIP from /shop to renew!",
                     parse_mode="HTML"
                 )
             except Exception:
                 pass
+            # Notify admins to manually remove from clip library
+            from config import ADMINS
+            exp_link = user_link(u["first_name"], u["telegram_id"])
+            for admin_id in ADMINS:
+                try:
+                    await bot.send_message(admin_id,
+                        f"👑 <b>VIP Expired</b>\n\n"
+                        f"👤 {exp_link}\n"
+                        f"📚 Please manually remove them from the Clip Library channel.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
         # ── Expire protection items ──
         expired_protections = await fetch_all(
