@@ -23,8 +23,8 @@ from core.helpers import (
 # ── outburst counter ──────────────────────────────────────────────────────
 _msg_counter: dict = {}
 
-# ── pending service clip sessions {telegram_id: {item, user_id, username}} ──
-_pending_service: dict = {}
+# ── pending service clip sessions {telegram_id: list of {item, user_id, username, label}} ──
+_pending_service: dict = {}  # telegram_id -> deque of sessions
 
 async def track_outburst(message: Message, bot: Bot):
     if message.chat.id != GROUP_ID or message.from_user.is_bot:
@@ -403,6 +403,25 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
                 f"❌ Not enough points. You have <b>{user['remaining_points']}</b>, need <b>{cost}</b>.",
                 parse_mode="HTML"
             )
+        # Block duplicate VIP purchase
+        if item == "vip" and not is_admin(message.from_user.id):
+            if user["is_vip"]:
+                vip_exp = user["vip_expires_at"][:10] if user["vip_expires_at"] else "?"
+                return await message.reply(
+                    f"👑 <b>Already VIP!</b>\n\n"
+                    f"Your VIP is active until <b>{vip_exp}</b>.\n"
+                    f"You can buy another VIP after it expires.",
+                    parse_mode="HTML"
+                )
+            existing_vip = await fetch_one(
+                "SELECT id FROM inventory WHERE user_id = ? AND item = 'vip' LIMIT 1", (user["id"],)
+            )
+            if existing_vip:
+                return await message.reply(
+                    "👑 <b>You already have a VIP in your inventory!</b>\n\n"
+                    "Use /use vip to activate it first.",
+                    parse_mode="HTML"
+                )
         if not is_admin(message.from_user.id):
             await execute(
                 "UPDATE users SET remaining_points = remaining_points - ? WHERE telegram_id = ?",
@@ -419,35 +438,39 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
         # Service items — ask user to send clip in DM
         if item in SERVICE_ITEMS:
             SERVICE_LABELS = {
-                "noise_cleanup":   "🔇 Noise Cleanup (2 min)",
-                "vocal_separator": "🎤 Vocal Separator (2 min)",
-                "background_track":"🎵 Background Track (2 min)",
-                "admins_voices":   "🎙 10-min VC with Admin",
+                "noise_cleanup":    "🔇 Noise Cleanup (2 min)",
+                "vocal_separator":  "🎤 Vocal Separator (2 min)",
+                "background_track": "🎵 Background Track (2 min)",
+                "admins_voices":    "🎙 10-min VC with Admin",
             }
             label = SERVICE_LABELS.get(item, item)
-            _pending_service[message.from_user.id] = {
+            session_entry = {
                 "item":     item,
                 "user_id":  user["id"],
                 "username": message.from_user.username,
                 "label":    label,
             }
+            if message.from_user.id not in _pending_service:
+                _pending_service[message.from_user.id] = []
+            _pending_service[message.from_user.id].append(session_entry)
+            queue_len = len(_pending_service[message.from_user.id])
             await message.reply(
                 f"✅ Purchased {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>!\n\n"
-                f"📩 <b>Please send your clip/audio in DM to me now</b> and I'll forward it to the team with your request details.\n"
-                f"<i>You have 10 minutes to send it.</i>",
+                f"📩 <b>Please send your clip/audio in DM</b> and I'll forward it to the admin team.\n"
+                + (f"<i>You have {queue_len} pending service(s) — send one clip at a time.</i>" if queue_len > 1 else "<i>You have 10 minutes to send it.</i>"),
                 parse_mode="HTML"
             )
             try:
                 await bot.send_message(
                     message.from_user.id,
                     f"👋 You purchased <b>{label}</b>!\n\n"
-                    f"Please send your <b>audio or video clip</b> here and I'll forward it to the admin team.\n"
-                    f"⏰ You have <b>10 minutes</b> to send it.",
+                    f"Please send your <b>audio or video clip</b> here.\n"
+                    + (f"⚠️ You have <b>{queue_len} pending service(s)</b> — send clips one at a time." if queue_len > 1 else "⏰ You have <b>10 minutes</b> to send it."),
                     parse_mode="HTML"
                 )
             except Exception:
                 await message.reply(
-                    "⚠️ I couldn't DM you. Please start a chat with me first, then use /use to re-trigger."
+                    "⚠️ I couldn't DM you. Please start a chat with me first, then send your clip."
                 )
         else:
             await message.reply(
@@ -1004,13 +1027,18 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
     # ── DM clip handler for service items ─────────────────────────────────
     @dp.message(F.chat.type == "private", F.video | F.audio | F.voice | F.document)
     async def service_clip_handler(message: Message):
-        uid     = message.from_user.id
-        session = _pending_service.get(uid)
-        if not session:
+        uid   = message.from_user.id
+        queue = _pending_service.get(uid)
+        if not queue:
             return
+        # Pop the first pending session (FIFO)
+        session = queue.pop(0)
+        if not queue:
+            del _pending_service[uid]
+
         item  = session["item"]
         label = session["label"]
-        del _pending_service[uid]
+        remaining_count = len(_pending_service.get(uid, []))
 
         user_lnk = user_link(message.from_user.first_name or "User", uid, session["username"])
         caption  = (
@@ -1029,13 +1057,16 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
                 await bot.send_voice(PURCHASES_LOG_ID, message.voice.file_id, caption=caption, parse_mode="HTML")
             elif message.document:
                 await bot.send_document(PURCHASES_LOG_ID, message.document.file_id, caption=caption, parse_mode="HTML")
-            await message.reply(
+
+            reply_text = (
                 f"✅ <b>Clip received!</b>\n\n"
-                f"Your clip has been forwarded to the admin team.\n"
                 f"🛠 Service: <b>{label}</b>\n"
-                f"⏰ Expected: within 2 minutes.",
-                parse_mode="HTML"
+                f"⏰ Expected: within 2 minutes."
             )
+            if remaining_count > 0:
+                next_label = _pending_service[uid][0]["label"] if uid in _pending_service else ""
+                reply_text += f"\n\n📋 You still have <b>{remaining_count}</b> more service(s) pending.\nSend your next clip now for: <b>{next_label}</b>"
+            await message.reply(reply_text, parse_mode="HTML")
         except Exception as e:
             print(f"[SERVICE_CLIP] Failed: {e}")
             await message.reply("❌ Something went wrong. Contact an admin directly.")
