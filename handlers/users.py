@@ -389,11 +389,11 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             return await message.reply("❌ Item not found. Check /shop.")
         await upsert_user(message.from_user)
         user = await get_user_by_tgid(message.from_user.id)
-        if not is_admin(message.from_user.id) and user["remaining_points"] < SHOP_MIN_POINTS:
+        if not is_admin(message.from_user.id) and user["total_points"] < SHOP_MIN_POINTS:
             return await message.reply(
                 f"🔒 <b>Shop Locked</b>\n\n"
-                f"You need at least <b>{SHOP_MIN_POINTS} remaining points</b> to use the shop.\n"
-                f"You currently have <b>{user['remaining_points']} pts</b>.\n\n"
+                f"You need at least <b>{SHOP_MIN_POINTS} total points</b> earned to use the shop.\n"
+                f"You currently have <b>{user['total_points']} total pts</b>.\n\n"
                 f"💡 Complete projects and check in daily to earn more!",
                 parse_mode="HTML"
             )
@@ -435,43 +435,13 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
             parse_mode="HTML"
         )
-        # Service items — ask user to send clip in DM
+        # Service items — just confirm purchase, clip will be requested on /use
         if item in SERVICE_ITEMS:
-            SERVICE_LABELS = {
-                "noise_cleanup":    "🔇 Noise Cleanup (2 min)",
-                "vocal_separator":  "🎤 Vocal Separator (2 min)",
-                "background_track": "🎵 Background Track (2 min)",
-                "admins_voices":    "🎙 10-min VC with Admin",
-            }
-            label = SERVICE_LABELS.get(item, item)
-            session_entry = {
-                "item":     item,
-                "user_id":  user["id"],
-                "username": message.from_user.username,
-                "label":    label,
-            }
-            if message.from_user.id not in _pending_service:
-                _pending_service[message.from_user.id] = []
-            _pending_service[message.from_user.id].append(session_entry)
-            queue_len = len(_pending_service[message.from_user.id])
             await message.reply(
-                f"✅ Purchased {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>!\n\n"
-                f"📩 <b>Please send your clip/audio in DM</b> and I'll forward it to the admin team.\n"
-                + (f"<i>You have {queue_len} pending service(s) — send one clip at a time.</i>" if queue_len > 1 else "<i>You have 10 minutes to send it.</i>"),
+                f"✅ Purchased {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>!\n"
+                f"Check /inv — use <code>/use {item}</code> when you're ready to send your clip.",
                 parse_mode="HTML"
             )
-            try:
-                await bot.send_message(
-                    message.from_user.id,
-                    f"👋 You purchased <b>{label}</b>!\n\n"
-                    f"Please send your <b>audio or video clip</b> here.\n"
-                    + (f"⚠️ You have <b>{queue_len} pending service(s)</b> — send clips one at a time." if queue_len > 1 else "⏰ You have <b>10 minutes</b> to send it."),
-                    parse_mode="HTML"
-                )
-            except Exception:
-                await message.reply(
-                    "⚠️ I couldn't DM you. Please start a chat with me first, then send your clip."
-                )
         else:
             await message.reply(
                 f"✅ Purchased {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>!\n"
@@ -577,6 +547,50 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             await message.reply("⏳ <b>Deadline Extended by 1 day!</b> No penalty for the extra day.", parse_mode="HTML")
             return
 
+        # Service items — trigger clip request in DM
+        if item in SERVICE_ITEMS:
+            SERVICE_LABELS = {
+                "noise_cleanup":    "🔇 Noise Cleanup (2 min)",
+                "vocal_separator":  "🎤 Vocal Separator (2 min)",
+                "background_track": "🎵 Background Track (2 min)",
+                "admins_voices":    "🎙 10-min VC with Admin",
+            }
+            label = SERVICE_LABELS.get(item, item)
+            session_entry = {
+                "item":     item,
+                "user_id":  user["id"],
+                "username": message.from_user.username,
+                "label":    label,
+            }
+            if message.from_user.id not in _pending_service:
+                _pending_service[message.from_user.id] = []
+            _pending_service[message.from_user.id].append(session_entry)
+            queue_len = len(_pending_service[message.from_user.id])
+            try:
+                await bot.send_message(
+                    message.from_user.id,
+                    f"🛠 <b>{label}</b>\n\n"
+                    f"Please send your <b>audio or video clip</b> here whenever you're ready.\n"
+                    f"No time limit — send it when you have your clip!"
+                    + (f"\n\n⚠️ You have <b>{queue_len} pending service(s)</b> — send one clip at a time." if queue_len > 1 else ""),
+                    parse_mode="HTML"
+                )
+                await execute("DELETE FROM inventory WHERE id = ?", (inv_row["id"],))
+                await execute("UPDATE users SET items_used = items_used + 1 WHERE id = ?", (user["id"],))
+                await message.reply(
+                    f"✅ <b>{label}</b> activated!\n\n"
+                    f"📩 Send your clip in DM to me whenever you're ready — no rush!",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                _pending_service[message.from_user.id].pop()
+                if not _pending_service[message.from_user.id]:
+                    del _pending_service[message.from_user.id]
+                await message.reply(
+                    "⚠️ I couldn't DM you. Please start a chat with me first, then try /use again."
+                )
+            return
+
         await execute("DELETE FROM inventory WHERE id = ?", (inv_row["id"],))
         await execute("UPDATE users SET items_used = items_used + 1 WHERE id = ?", (user["id"],))
         try:
@@ -604,11 +618,11 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
         if sub in ("list", "buy"):
             await upsert_user(message.from_user)
             _u = await get_user_by_tgid(message.from_user.id)
-            if not is_admin(message.from_user.id) and _u and _u["remaining_points"] < SHOP_MIN_POINTS:
+            if not is_admin(message.from_user.id) and _u and _u["total_points"] < SHOP_MIN_POINTS:
                 return await message.reply(
                     f"🔒 <b>Marketplace Locked</b>\n\n"
-                    f"You need at least <b>{SHOP_MIN_POINTS} remaining points</b> to use the marketplace.\n"
-                    f"You currently have <b>{_u['remaining_points']} pts</b>.\n\n"
+                    f"You need at least <b>{SHOP_MIN_POINTS} total points</b> earned to use the marketplace.\n"
+                    f"You currently have <b>{_u['total_points']} total pts</b>.\n\n"
                     f"💡 Complete projects and check in daily to earn more!",
                     parse_mode="HTML"
                 )
@@ -799,7 +813,8 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             f"👤 {name}\n"
             f"⏰ {now.strftime('%Y-%m-%d %H:%M')}\n"
             f"{'⚠️ LATE' if late else '✅ On time'}\n\n"
-            f"👑 {reviewer_tags} — please review!"
+            f"👑 {reviewer_tags} — please review!\n"
+            f"#uid_{message.from_user.id}"
         )
         rep = message.reply_to_message
         try:
@@ -1046,7 +1061,8 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             f"👤 {user_lnk}\n"
             f"🛠 <b>{label}</b>\n"
             f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-            f"<i>Please complete within 2 minutes and reply to this message.</i>"
+            f"<i>Please complete within 2 minutes and reply to this message.</i>\n"
+            f"#uid_{uid}"
         )
         try:
             if message.video:
