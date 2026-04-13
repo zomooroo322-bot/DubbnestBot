@@ -1,9 +1,9 @@
 import os
 
 BOT_TOKEN        = os.environ.get("BOT_TOKEN", "8662673703:AAGPS77TnJei-acgWUMlW0zLn7MhrpXlrJQ")
-ADMINS           = [8061402854, 7141606933]
+ADMINS           = [8061402854, 7141606933, 7097245639, 5685840380]
 OWNER_ID         = 8061402854
-REVIEWER_IDS     = [8061402854, 7141606933]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
+REVIEWER_IDS     = [8061402854, 7141606933, 7097245639]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
 PRICE_MANAGER    = "tg_zomooroo"
 GROUP_ID         = -1002845931079
 PURCHASES_LOG_ID = -1003264076221
@@ -49,15 +49,15 @@ AI_MODERATION_ENABLED = True
 AI_WARN_PENALTY       = 20
 
 STORE: dict = {
-    "noise_cleanup":            80,
-    "vocal_separator":          115,
-    "background_track":         200,
-    "deadline_extension":       320,
+    "noise_cleanup":            50,
+    "vocal_separator(2min)":          50,
+    "background_track(2min)":         200,
+    "deadline_extension(1d)":       320,
     "priority_review":          120,
-    "personal_review":          290,
+    "personal_review":          80,
     "featured_spotlight":       420,
     "public_review_in_channel": 220,
-    "admins_voices":            250,
+    "admins_voices(2min)":            200,
     "vip":                      500,
 }
 
