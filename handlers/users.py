@@ -3,12 +3,13 @@ import random
 import datetime
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import (
     ADMINS, GROUP_ID, PURCHASES_LOG_ID, STORE, ITEM_EMOJI, ITEM_DESCRIPTIONS,
     CLIP_LIBRARY_LINK, CHECKIN_PTS, CHECKIN_STREAK_BONUS, CHECKIN_STREAK_DAYS,
-    OUTBURST_EVERY, OUTBURSTS, RATINGS, REVIEWER_IDS, SHOP_MIN_POINTS, SERVICE_ITEMS,
+    OUTBURST_EVERY, OUTBURSTS, RATINGS, REVIEWER_IDS, SHOP_MIN_POINTS,
+    SERVICE_ITEMS, ADMIN_VOICES,
 )
 from core.database import (
     fetch_one, fetch_all, execute,
@@ -25,6 +26,9 @@ _msg_counter: dict = {}
 
 # ── pending service clip sessions {telegram_id: list of {item, user_id, username, label}} ──
 _pending_service: dict = {}  # telegram_id -> deque of sessions
+
+# ── pending admin voice selection {telegram_id: {user_id, username, inv_row_id}} ──
+_pending_admin_voice: dict = {}
 
 async def track_outburst(message: Message, bot: Bot):
     if message.chat.id != GROUP_ID or message.from_user.is_bot:
@@ -547,20 +551,39 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             await message.reply("⏳ <b>Deadline Extended by 1 day!</b> No penalty for the extra day.", parse_mode="HTML")
             return
 
+        # ── admins_voices — show admin selection keyboard ─────────────────
+        if item == "admins_voices":
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"🎙 {name}",
+                    callback_data=f"av_pick:{tid}:{user['id']}:{inv_row['id']}"
+                )]
+                for name, tid in ADMIN_VOICES
+            ])
+            await message.reply(
+                "🎙 <b>Select an Admin for Your Voice Session</b>\n\n"
+                "Choose which admin you'd like to work with:",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+            return
+
         # Service items — trigger clip request in DM
         if item in SERVICE_ITEMS:
             SERVICE_LABELS = {
                 "noise_cleanup":    "🔇 Noise Cleanup (2 min)",
                 "vocal_separator":  "🎤 Vocal Separator (2 min)",
                 "background_track": "🎵 Background Track (2 min)",
-                "admins_voices":    "🎙 10-min VC with Admin",
+                "personal_review":  "📋 Personal Review",
             }
             label = SERVICE_LABELS.get(item, item)
             session_entry = {
-                "item":     item,
-                "user_id":  user["id"],
-                "username": message.from_user.username,
-                "label":    label,
+                "item":       item,
+                "user_id":    user["id"],
+                "username":   message.from_user.username,
+                "label":      label,
+                "admin_id":   None,
+                "admin_name": None,
             }
             if message.from_user.id not in _pending_service:
                 _pending_service[message.from_user.id] = []
@@ -1039,6 +1062,54 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             )
         await message.reply("\n\n".join(lines), parse_mode="HTML")
 
+    # ── Admin voice selection callback ────────────────────────────────────
+    @dp.callback_query(F.data.startswith("av_pick:"))
+    async def cb_admin_voice_pick(callback: CallbackQuery):
+        parts       = callback.data.split(":")
+        admin_tid   = int(parts[1])
+        db_user_id  = int(parts[2])
+        inv_id      = int(parts[3])
+        uid         = callback.from_user.id
+
+        # Find admin name
+        admin_name = next((n for n, t in ADMIN_VOICES if t == admin_tid), "Admin")
+
+        # Remove from inventory and mark used
+        await execute("DELETE FROM inventory WHERE id = ?", (inv_id,))
+        await execute("UPDATE users SET items_used = items_used + 1 WHERE id = ?", (db_user_id,))
+
+        # Store session waiting for clip
+        session_entry = {
+            "item":       "admins_voices",
+            "user_id":    db_user_id,
+            "username":   callback.from_user.username,
+            "label":      f"🎙 Voice Session with {admin_name}",
+            "admin_id":   admin_tid,
+            "admin_name": admin_name,
+        }
+        if uid not in _pending_service:
+            _pending_service[uid] = []
+        _pending_service[uid].append(session_entry)
+
+        await callback.message.edit_text(
+            f"✅ <b>Selected: {admin_name}</b>\n\n"
+            f"📩 Now send your <b>audio or video clip</b> in my DM whenever you're ready.\n"
+            f"No time limit — send when you have your clip!",
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        try:
+            await bot.send_message(uid,
+                f"🎙 <b>Voice Session — {admin_name}</b>\n\n"
+                f"Please send your <b>audio or video clip</b> here.\n"
+                f"Once received I'll notify {admin_name} and they'll get back to you within <b>3 days</b>.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            await callback.message.reply(
+                "⚠️ I couldn't DM you. Please start a chat with me first."
+            )
+
     # ── DM clip handler for service items ─────────────────────────────────
     @dp.message(F.chat.type == "private", F.video | F.audio | F.voice | F.document)
     async def service_clip_handler(message: Message):
@@ -1046,24 +1117,48 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
         queue = _pending_service.get(uid)
         if not queue:
             return
-        # Pop the first pending session (FIFO)
         session = queue.pop(0)
         if not queue:
             del _pending_service[uid]
 
-        item  = session["item"]
-        label = session["label"]
+        item            = session["item"]
+        label           = session["label"]
+        admin_id        = session.get("admin_id")
+        admin_name      = session.get("admin_name")
         remaining_count = len(_pending_service.get(uid, []))
 
         user_lnk = user_link(message.from_user.first_name or "User", uid, session["username"])
-        caption  = (
-            f"📦 <b>Service Request</b>\n"
-            f"👤 {user_lnk}\n"
-            f"🛠 <b>{label}</b>\n"
-            f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-            f"<i>Please complete within 2 minutes and reply to this message.</i>\n"
-            f"#uid_{uid}"
-        )
+
+        # Build caption based on item type
+        if item == "admins_voices":
+            deadline = (datetime.datetime.now() + datetime.timedelta(days=3)).strftime("%Y-%m-%d")
+            admin_tag = f'<a href="tg://user?id={admin_id}">{admin_name}</a>'
+            caption = (
+                f"🎙 <b>Voice Session Request</b>\n"
+                f"👤 {user_lnk}\n"
+                f"🎯 Admin: {admin_tag}\n"
+                f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                f"⚠️ {admin_tag} — please respond within <b>3 days</b> (by {deadline}).\n"
+                f"#uid_{uid}"
+            )
+        elif item == "personal_review":
+            caption = (
+                f"📋 <b>Personal Review Request</b>\n"
+                f"👤 {user_lnk}\n"
+                f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                f"<i>Please review this clip and reply with detailed feedback.</i>\n"
+                f"#uid_{uid}"
+            )
+        else:
+            caption = (
+                f"📦 <b>Service Request</b>\n"
+                f"👤 {user_lnk}\n"
+                f"🛠 <b>{label}</b>\n"
+                f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                f"<i>Please complete within 2 minutes and reply to this message.</i>\n"
+                f"#uid_{uid}"
+            )
+
         try:
             if message.video:
                 await bot.send_video(PURCHASES_LOG_ID, message.video.file_id, caption=caption, parse_mode="HTML")
@@ -1077,12 +1172,20 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             reply_text = (
                 f"✅ <b>Clip received!</b>\n\n"
                 f"🛠 Service: <b>{label}</b>\n"
-                f"⏰ Expected: within 2 minutes."
             )
+            if item == "admins_voices":
+                reply_text += f"👤 Admin: <b>{admin_name}</b>\n⏰ Expected: within 3 days."
+            elif item == "personal_review":
+                reply_text += "⏰ Admin will reply with detailed feedback."
+            else:
+                reply_text += "⏰ Expected: within 2 minutes."
+
             if remaining_count > 0:
                 next_label = _pending_service[uid][0]["label"] if uid in _pending_service else ""
-                reply_text += f"\n\n📋 You still have <b>{remaining_count}</b> more service(s) pending.\nSend your next clip now for: <b>{next_label}</b>"
+                reply_text += f"\n\n📋 You still have <b>{remaining_count}</b> more service(s) pending.\nSend your next clip for: <b>{next_label}</b>"
+
             await message.reply(reply_text, parse_mode="HTML")
+
         except Exception as e:
             print(f"[SERVICE_CLIP] Failed: {e}")
             await message.reply("❌ Something went wrong. Contact an admin directly.")
