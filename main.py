@@ -106,7 +106,7 @@ class GroupRestrictionMiddleware(BaseMiddleware):
         elif hasattr(event, "message") and event.message:
             chat = event.message.chat
         if chat is not None:
-            if chat.type == "private" or chat.id == GROUP_ID:
+            if chat.type == "private" or chat.id == GROUP_ID or chat.id == PURCHASES_LOG_ID:
                 return await handler(event, data)
             return
         return await handler(event, data)
@@ -122,16 +122,56 @@ async def group_message_watcher(message: Message):
     if message.text and not message.from_user.is_bot:
         asyncio.create_task(moderate_message(message, bot))
 
+# ── Admin reply forwarder (PURCHASES_LOG_ID → user DM) ───────────────────
 @dp.message(F.chat.id == PURCHASES_LOG_ID, F.reply_to_message)
 async def admin_reply_forwarder(message: Message):
-    # Check if replying to a bot message
-    if not message.reply_to_message.from_user.is_bot:
-        return
-    # Check if admin sent the reply
+    # Only process replies from admins
     if message.from_user.id not in ADMINS:
         return
-    # Extract user telegram_id from the caption
-    # Forward file back to user
+    # Only process replies to bot messages
+    replied = message.reply_to_message
+    if not replied.from_user or not replied.from_user.is_bot:
+        return
+    # Extract uid from caption or text (#uid_XXXXXXXXX)
+    import re
+    text_to_search = ""
+    if replied.caption:
+        text_to_search = replied.caption
+    elif replied.text:
+        text_to_search = replied.text
+    match = re.search(r"#uid_(\d+)", text_to_search)
+    if not match:
+        return  # no uid tag found — not a trackable message
+    user_tg_id = int(match.group(1))
+    # Determine context label
+    if "Service Request" in text_to_search:
+        context = "🛠 <b>Your processed clip is ready!</b>"
+    elif "Submission" in text_to_search:
+        context = "📋 <b>Feedback from admin on your submission:</b>"
+    else:
+        context = "📩 <b>Reply from admin:</b>"
+    # Forward file or text to user
+    try:
+        if message.video:
+            await bot.send_video(user_tg_id, message.video.file_id,
+                caption=f"{context}\n\n{message.caption or ''}", parse_mode="HTML")
+        elif message.audio:
+            await bot.send_audio(user_tg_id, message.audio.file_id,
+                caption=f"{context}\n\n{message.caption or ''}", parse_mode="HTML")
+        elif message.voice:
+            await bot.send_voice(user_tg_id, message.voice.file_id,
+                caption=f"{context}\n\n{message.caption or ''}", parse_mode="HTML")
+        elif message.document:
+            await bot.send_document(user_tg_id, message.document.file_id,
+                caption=f"{context}\n\n{message.caption or ''}", parse_mode="HTML")
+        elif message.text:
+            await bot.send_message(user_tg_id,
+                f"{context}\n\n{message.text}", parse_mode="HTML")
+        else:
+            return
+        await message.reply("✅ Forwarded to user successfully.")
+    except Exception as e:
+        await message.reply(f"❌ Failed to forward: {e}")
 
 # ── Error handler ─────────────────────────────────────────────────────────
 @dp.errors()
