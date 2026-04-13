@@ -1,9 +1,9 @@
 import os
 
 BOT_TOKEN        = os.environ.get("BOT_TOKEN", "8662673703:AAGPS77TnJei-acgWUMlW0zLn7MhrpXlrJQ")
-ADMINS           = [8061402854, 7141606933, 5685840380]
+ADMINS           = [8061402854, 7141606933]
 OWNER_ID         = 8061402854
-REVIEWER_IDS     = [8061402854, 7141606933, 5685840380]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
+REVIEWER_IDS     = [8061402854, 7141606933]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
 PRICE_MANAGER    = "tg_zomooroo"
 GROUP_ID         = -1002845931079
 PURCHASES_LOG_ID = -1003264076221
@@ -32,15 +32,15 @@ BOT_PERSONALITY = (
 )
 
 STARTER_POINTS       = 50
-SHOP_MIN_POINTS      = 100   # user needs 100+ remaining pts to use shop/market
+SHOP_MIN_POINTS      = 150   # user needs 150+ remaining pts to use shop/market
 # DATABASE_URL is set automatically by Railway when you add PostgreSQL
 CHECKIN_PTS          = 5
 CHECKIN_STREAK_BONUS = 20
 CHECKIN_STREAK_DAYS  = 7
 OUTBURST_EVERY       = 50
 
-CLIP_LIBRARY_CHANNEL_ID = -1001234567890
-CLIP_LIBRARY_LINK       = "https://t.me/+-8vtxaYf_w4yODM1"
+
+CLIP_LIBRARY_LINK       = "https://t.me/+-8vtxaYf_w4yODM1"  # VIP perk only
 
 OPENROUTER_API_KEY    = os.environ.get("OPENROUTER_API_KEY", "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")
 OPENROUTER_MODEL      = "arcee-ai/trinity-large-preview:free"
@@ -49,16 +49,15 @@ AI_MODERATION_ENABLED = True
 AI_WARN_PENALTY       = 20
 
 STORE: dict = {
-    "noise_cleanup(2min)":            50,
-    "vocal_separator(2min)":          60,
-    "background_track(2min)":         200,
-    "deadline_extension(1d)":       320,
+    "noise_cleanup":            80,
+    "vocal_separator":          115,
+    "background_track":         200,
+    "deadline_extension":       320,
     "priority_review":          120,
     "personal_review":          290,
     "featured_spotlight":       420,
     "public_review_in_channel": 220,
     "admins_voices":            250,
-    "clip_library":             220,
     "vip":                      500,
 }
 
@@ -72,7 +71,6 @@ ITEM_EMOJI: dict = {
     "featured_spotlight":       "🌟",
     "public_review_in_channel": "📢",
     "admins_voices":            "🎙",
-    "clip_library":             "📚",
     "vip":                      "👑",
 }
 
@@ -95,17 +93,18 @@ ITEM_DESCRIPTIONS: dict = {
         "📢 <b>Public Review in Channel</b>\n\nYour work will be publicly reviewed in our channel.\nAn admin will reach out to arrange everything.",
     "admins_voices":
         "🎙 <b>10-Minute VC with Admin</b>\n\nUnlocks a private 10-minute voice call with one of our admins.\nUse /use admins_voices to notify admin and schedule your session.",
-    "clip_library":
-        "📚 <b>Clip Library Access</b>\n\nUse /use clip_library to get your personal access link via DM.\nYour join request will be approved automatically.",
     "vip":
         "👑 <b>VIP Status</b> — 14 Days\n\n"
         "• 👑 VIP tag on profile & leaderboard\n"
         "• 🤖 Access to Nexus AI (/ask)\n"
         "• 🎙 2x 10-min VC with admin (added to inventory)\n"
         "• ⚡ 1x priority review (added to inventory)\n"
-        "• 📚 Clip library access included\n\n"
+        "\n"
         "Use /use vip to activate.",
 }
+
+# Items that require user to send a clip in DM
+SERVICE_ITEMS = ["noise_cleanup", "vocal_separator", "background_track", "admins_voices"]
 
 RATINGS: dict = {
     "poor": 0, "needimprovement": 4, "average": 6, "verygood": 8, "excellent": 10,
