@@ -8,7 +8,7 @@ from aiogram.types import Message
 from config import (
     ADMINS, GROUP_ID, PURCHASES_LOG_ID, STORE, ITEM_EMOJI, ITEM_DESCRIPTIONS,
     CLIP_LIBRARY_LINK, CHECKIN_PTS, CHECKIN_STREAK_BONUS, CHECKIN_STREAK_DAYS,
-    OUTBURST_EVERY, OUTBURSTS, RATINGS, REVIEWER_IDS, SHOP_MIN_POINTS,
+    OUTBURST_EVERY, OUTBURSTS, RATINGS, REVIEWER_IDS, SHOP_MIN_POINTS, SERVICE_ITEMS,
 )
 from core.database import (
     fetch_one, fetch_all, execute,
@@ -22,6 +22,9 @@ from core.helpers import (
 
 # ── outburst counter ──────────────────────────────────────────────────────
 _msg_counter: dict = {}
+
+# ── pending service clip sessions {telegram_id: {item, user_id, username}} ──
+_pending_service: dict = {}
 
 async def track_outburst(message: Message, bot: Bot):
     if message.chat.id != GROUP_ID or message.from_user.is_bot:
@@ -408,22 +411,56 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             await log_points(user["id"], -cost, f"🛒 Bought {item}")
         display = user_link(message.from_user.first_name or "User", message.from_user.id)
         await add_to_inventory(user["id"], item)
-        await message.reply(
-            f"✅ Purchased {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>!\n"
-            f"Check /inv — use /use {item} to activate.",
-            parse_mode="HTML"
-        )
-        try:
-            await bot.send_message(message.from_user.id,
-                ITEM_DESCRIPTIONS.get(item, f"✅ You bought <b>{item}</b>"), parse_mode="HTML"
-            )
-        except Exception:
-            pass
         await bot.send_message(PURCHASES_LOG_ID,
             f"🛍 <b>New Purchase</b>\n👤 {display}\n📦 <b>{item}</b> — {cost} pts\n"
             f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
             parse_mode="HTML"
         )
+        # Service items — ask user to send clip in DM
+        if item in SERVICE_ITEMS:
+            SERVICE_LABELS = {
+                "noise_cleanup":   "🔇 Noise Cleanup (2 min)",
+                "vocal_separator": "🎤 Vocal Separator (2 min)",
+                "background_track":"🎵 Background Track (2 min)",
+                "admins_voices":   "🎙 10-min VC with Admin",
+            }
+            label = SERVICE_LABELS.get(item, item)
+            _pending_service[message.from_user.id] = {
+                "item":     item,
+                "user_id":  user["id"],
+                "username": message.from_user.username,
+                "label":    label,
+            }
+            await message.reply(
+                f"✅ Purchased {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>!\n\n"
+                f"📩 <b>Please send your clip/audio in DM to me now</b> and I'll forward it to the team with your request details.\n"
+                f"<i>You have 10 minutes to send it.</i>",
+                parse_mode="HTML"
+            )
+            try:
+                await bot.send_message(
+                    message.from_user.id,
+                    f"👋 You purchased <b>{label}</b>!\n\n"
+                    f"Please send your <b>audio or video clip</b> here and I'll forward it to the admin team.\n"
+                    f"⏰ You have <b>10 minutes</b> to send it.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                await message.reply(
+                    "⚠️ I couldn't DM you. Please start a chat with me first, then use /use to re-trigger."
+                )
+        else:
+            await message.reply(
+                f"✅ Purchased {ITEM_EMOJI.get(item,'📦')} <b>{item}</b>!\n"
+                f"Check /inv — use /use {item} to activate.",
+                parse_mode="HTML"
+            )
+            try:
+                await bot.send_message(message.from_user.id,
+                    ITEM_DESCRIPTIONS.get(item, f"✅ You bought <b>{item}</b>"), parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
     @dp.message(Command("inv"))
     async def cmd_inv(message: Message):
@@ -474,21 +511,27 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             await add_to_inventory(user["id"], "admins_voices")
             await add_to_inventory(user["id"], "admins_voices")
             await add_to_inventory(user["id"], "priority_review")
-            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            await execute(
-                "INSERT INTO clip_approved (telegram_id, approved_at) VALUES (?, ?) "
-                "ON CONFLICT(telegram_id) DO UPDATE SET approved_at = EXCLUDED.approved_at",
-                (message.from_user.id, now_str)
-            )
             vip_fmt = datetime.datetime.strptime(vip_expires, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M")
             await message.reply(
                 f"👑 <b>VIP Activated! (14 Days)</b>\n\n"
                 f"✅ Expires: <b>{vip_fmt}</b>\n"
                 f"🎙 2x 10-min VC with admin added to inventory\n"
                 f"⚡ 1x priority review added to inventory\n"
-                f"📚 Clip Library access armed — use /use clip_library to get your link!",
+                f"📚 Clip Library link sent to your DMs!",
                 parse_mode="HTML"
             )
+            # Send clip library link via DM
+            try:
+                await bot.send_message(
+                    message.from_user.id,
+                    f"👑 <b>VIP Perk — Clip Library Access</b>\n\n"
+                    f"As a VIP member you get access to our exclusive clip library!\n\n"
+                    f"👉 <b>Join here:</b> {CLIP_LIBRARY_LINK}\n\n"
+                    f"<i>This link is for your account only. Valid for 14 days.</i>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
             await bot.send_message(PURCHASES_LOG_ID,
                 f"👑 <b>VIP Activated</b>\n👤 {user_link(message.from_user.first_name or 'User', message.from_user.id)}\n"
                 f"⏳ Expires: {vip_fmt}",
@@ -510,42 +553,7 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             await execute("UPDATE users SET items_used = items_used + 1 WHERE id = ?", (user["id"],))
             await message.reply("⏳ <b>Deadline Extended by 1 day!</b> No penalty for the extra day.", parse_mode="HTML")
             return
-        if item == "clip_library":
-            await execute("DELETE FROM inventory WHERE id = ?", (inv_row["id"],))
-            await execute("UPDATE users SET items_used = items_used + 1 WHERE id = ?", (user["id"],))
-            try:
-                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                await execute(
-                    "INSERT INTO clip_approved (telegram_id, approved_at) VALUES (?, ?) "
-                    "ON CONFLICT(telegram_id) DO UPDATE SET approved_at = EXCLUDED.approved_at",
-                    (message.from_user.id, now_str)
-                )
-                await bot.send_message(
-                    message.from_user.id,
-                    f"📚 <b>Clip Library Access</b>\n\n"
-                    f"Tap the link below to request access:\n"
-                    f"👉 {CLIP_LIBRARY_LINK}\n\n"
-                    f"The bot will approve your request automatically.\n"
-                    f"⚠️ Sharing this link won't help others — only your account is approved.",
-                    parse_mode="HTML"
-                )
-                await message.reply(
-                    "📚 <b>Clip Library link sent to your DMs!</b>\nTap the link and the bot will approve you instantly.",
-                    parse_mode="HTML"
-                )
-                await bot.send_message(PURCHASES_LOG_ID,
-                    f"📚 <b>Clip Library Access Granted</b>\n"
-                    f"👤 {user_link(message.from_user.first_name or 'User', message.from_user.id, user['username'])}\n"
-                    f"🔐 Auto-approve armed for their join request.",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                print(f"[CLIP_LIBRARY] Failed: {e}")
-                await execute("DELETE FROM clip_approved WHERE telegram_id = ?", (message.from_user.id,))
-                await add_to_inventory(user["id"], "clip_library")
-                await execute("UPDATE users SET items_used = items_used - 1 WHERE id = ?", (user["id"],))
-                await message.reply("❌ Something went wrong. Item returned to your inventory. Contact an admin.")
-            return
+
         await execute("DELETE FROM inventory WHERE id = ?", (inv_row["id"],))
         await execute("UPDATE users SET items_used = items_used + 1 WHERE id = ?", (user["id"],))
         try:
@@ -992,3 +1000,42 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
                 f"<i>{row['reviewed_at']}</i>"
             )
         await message.reply("\n\n".join(lines), parse_mode="HTML")
+
+    # ── DM clip handler for service items ─────────────────────────────────
+    @dp.message(F.chat.type == "private", F.video | F.audio | F.voice | F.document)
+    async def service_clip_handler(message: Message):
+        uid     = message.from_user.id
+        session = _pending_service.get(uid)
+        if not session:
+            return
+        item  = session["item"]
+        label = session["label"]
+        del _pending_service[uid]
+
+        user_lnk = user_link(message.from_user.first_name or "User", uid, session["username"])
+        caption  = (
+            f"📦 <b>Service Request</b>\n"
+            f"👤 {user_lnk}\n"
+            f"🛠 <b>{label}</b>\n"
+            f"⏰ {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+            f"<i>Please complete within 2 minutes and reply to this message.</i>"
+        )
+        try:
+            if message.video:
+                await bot.send_video(PURCHASES_LOG_ID, message.video.file_id, caption=caption, parse_mode="HTML")
+            elif message.audio:
+                await bot.send_audio(PURCHASES_LOG_ID, message.audio.file_id, caption=caption, parse_mode="HTML")
+            elif message.voice:
+                await bot.send_voice(PURCHASES_LOG_ID, message.voice.file_id, caption=caption, parse_mode="HTML")
+            elif message.document:
+                await bot.send_document(PURCHASES_LOG_ID, message.document.file_id, caption=caption, parse_mode="HTML")
+            await message.reply(
+                f"✅ <b>Clip received!</b>\n\n"
+                f"Your clip has been forwarded to the admin team.\n"
+                f"🛠 Service: <b>{label}</b>\n"
+                f"⏰ Expected: within 2 minutes.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"[SERVICE_CLIP] Failed: {e}")
+            await message.reply("❌ Something went wrong. Contact an admin directly.")
