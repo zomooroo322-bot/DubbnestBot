@@ -164,7 +164,7 @@ def register_class_handlers(dp: Dispatcher, bot: Bot):
             else:
                 pts = CLASS_POINTS_MIN
 
-            # Give to both artist_points and remaining_points
+            # Give to artist_points, remaining_points and total_points
             await execute(
                 "UPDATE users SET artist_points = artist_points + ?, "
                 "remaining_points = remaining_points + ?, "
