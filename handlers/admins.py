@@ -906,8 +906,10 @@ def register_admin_handlers(dp: Dispatcher, bot: Bot):
         except ValueError:
             return await message.reply("❌ Amount must be a positive integer.")
         await execute(
-            "UPDATE users SET artist_points = artist_points + ? WHERE id = ?",
-            (amount, user["id"])
+            "UPDATE users SET artist_points = artist_points + ?, "
+            "remaining_points = remaining_points + ?, "
+            "total_points = total_points + ? WHERE id = ?",
+            (amount, amount, amount, user["id"])
         )
         target_link = user_link(user["first_name"], user["telegram_id"], user["username"])
         admin_link  = user_link(message.from_user.first_name or "Admin", message.from_user.id)
