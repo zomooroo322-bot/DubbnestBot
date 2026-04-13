@@ -2,13 +2,12 @@ import asyncio
 from typing import Callable, Awaitable, Any
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import TelegramObject, Message, ChatJoinRequest, BotCommand, BotCommandScopeChat, BotCommandScopeDefault
+from aiogram.types import TelegramObject, Message, BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 from aiogram import BaseMiddleware
 
-from config import BOT_TOKEN, GROUP_ID, CLIP_LIBRARY_CHANNEL_ID, PURCHASES_LOG_ID, ADMINS
-from core.database import init_db, fetch_one, execute
+from config import BOT_TOKEN, GROUP_ID, PURCHASES_LOG_ID, ADMINS
+from core.database import init_db
 from core.scheduler import start_scheduler
-from core.helpers import user_link
 
 from handlers.ai      import register_ai_handlers,     moderate_message
 from handlers.users   import register_user_handlers
@@ -122,40 +121,6 @@ async def group_message_watcher(message: Message):
     await track_outburst(message, bot)
     if message.text and not message.from_user.is_bot:
         asyncio.create_task(moderate_message(message, bot))
-
-# ── Clip Library join request handler ────────────────────────────────────
-@dp.chat_join_request(F.chat.id == CLIP_LIBRARY_CHANNEL_ID)
-async def clip_library_join_request(request: ChatJoinRequest):
-    uid      = request.from_user.id
-    approved = await fetch_one(
-        "SELECT telegram_id FROM clip_approved WHERE telegram_id = ?", (uid,)
-    )
-    if approved:
-        await bot.approve_chat_join_request(CLIP_LIBRARY_CHANNEL_ID, uid)
-        await execute("DELETE FROM clip_approved WHERE telegram_id = ?", (uid,))
-        try:
-            await bot.send_message(uid,
-                "✅ <b>Welcome to the Clip Library!</b>\n\nYou now have access to all the clips. Enjoy! 🎬",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-        await bot.send_message(PURCHASES_LOG_ID,
-            f"✅ <b>Clip Library — Approved</b>\n"
-            f"👤 {user_link(request.from_user.first_name or 'User', uid, request.from_user.username)}",
-            parse_mode="HTML"
-        )
-    else:
-        await bot.decline_chat_join_request(CLIP_LIBRARY_CHANNEL_ID, uid)
-        try:
-            await bot.send_message(uid,
-                "❌ <b>Access Denied — Clip Library</b>\n\n"
-                "You need to purchase the 📚 <b>clip_library</b> item from /shop first.\n"
-                "After buying, use /use clip_library to get your personal invite link.",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
 
 # ── Error handler ─────────────────────────────────────────────────────────
 @dp.errors()
