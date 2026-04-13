@@ -3,7 +3,7 @@ import os
 BOT_TOKEN        = os.environ.get("BOT_TOKEN", "8662673703:AAGPS77TnJei-acgWUMlW0zLn7MhrpXlrJQ")
 ADMINS           = [8061402854, 7141606933, 7097245639, 5685840380]
 OWNER_ID         = 8061402854
-REVIEWER_IDS     = [8061402854, 7141606933, 7097245639]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
+REVIEWER_IDS     = [8061402854, 7141606933]   # ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ + ꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧
 PRICE_MANAGER    = "tg_zomooroo"
 GROUP_ID         = -1002845931079
 PURCHASES_LOG_ID = -1003264076221
@@ -49,15 +49,15 @@ AI_MODERATION_ENABLED = True
 AI_WARN_PENALTY       = 20
 
 STORE: dict = {
-    "noise_cleanup":            50,
-    "vocal_separator(2min)":          50,
-    "background_track(2min)":         200,
-    "deadline_extension(1d)":       320,
+    "noise_cleanup":            80,
+    "vocal_separator":          115,
+    "background_track":         200,
+    "deadline_extension":       320,
     "priority_review":          120,
     "personal_review":          80,
     "featured_spotlight":       420,
     "public_review_in_channel": 220,
-    "admins_voices(2min)":            200,
+    "admins_voices":            250,
     "vip":                      500,
 }
 
@@ -104,7 +104,17 @@ ITEM_DESCRIPTIONS: dict = {
 }
 
 # Items that require user to send a clip in DM
-SERVICE_ITEMS = ["noise_cleanup", "vocal_separator", "background_track", "admins_voices"]
+SERVICE_ITEMS = ["noise_cleanup", "vocal_separator", "background_track", "admins_voices", "personal_review"]
+
+# Admins available for voice sessions (name, telegram_id)
+ADMIN_VOICES = [
+    ("ʜɪʀᴏ ʜᴀᴍᴀᴅᴀ ⎋",        8061402854),
+    ("𝗔𝗠𝗣𝗘𝗥𝗘 ✘ 𝗚𝗔𝗟𝗔𝗫𝗬 ✨",   8635661368),
+    ("꧁ᴴᴱᴿᏒᴏм𝑒Ꭷ✧",           7826336730),
+    ("꧁ᵸⁱˢᎫᴜ֟፝ℓiᴇᴛ✧",          7141606933),
+    ("𝗭𝗢𝗠𝗢𝗥𝗥𝗢𝗢 ✦",            5685840380),
+    ("𝗠𝗔𝗥𝗬 ✦",                7218769930),
+]
 
 RATINGS: dict = {
     "poor": 0, "needimprovement": 4, "average": 6, "verygood": 8, "excellent": 10,
