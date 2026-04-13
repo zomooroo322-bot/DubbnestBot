@@ -122,6 +122,17 @@ async def group_message_watcher(message: Message):
     if message.text and not message.from_user.is_bot:
         asyncio.create_task(moderate_message(message, bot))
 
+@dp.message(F.chat.id == PURCHASES_LOG_ID, F.reply_to_message)
+async def admin_reply_forwarder(message: Message):
+    # Check if replying to a bot message
+    if not message.reply_to_message.from_user.is_bot:
+        return
+    # Check if admin sent the reply
+    if message.from_user.id not in ADMINS:
+        return
+    # Extract user telegram_id from the caption
+    # Forward file back to user
+
 # ── Error handler ─────────────────────────────────────────────────────────
 @dp.errors()
 async def error_handler(event):
