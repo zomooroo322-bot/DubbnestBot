@@ -24,7 +24,6 @@ MEMBER_COMMANDS = [
     BotCommand(command="start",        description="Register / Welcome"),
     BotCommand(command="profile",      description="Your profile"),
     BotCommand(command="checkin",      description="Daily check-in (+5 pts)"),
-    BotCommand(command="top",          description="Leaderboard"),
     BotCommand(command="shop",         description="Browse shop"),
     BotCommand(command="inv",          description="Your inventory"),
     BotCommand(command="buy",          description="Buy an item"),
