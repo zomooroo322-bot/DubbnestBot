@@ -155,7 +155,6 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             "/mywork — Current assignment\n"
             "/submit — Submit work\n"
             "/checkin — Daily check-in (+5 pts)\n"
-            "/leaderboard_artists — Top 10 by artist points\n"
             "/achievements — Your badges & milestones\n"
             "/ratinghistory — Your past reviews\n"
             "/stats — Your statistics\n"
@@ -276,7 +275,6 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
         days_to_next = CHECKIN_STREAK_DAYS - (streak % CHECKIN_STREAK_DAYS)
         msg += f"\n⏭ Next streak bonus in <b>{days_to_next}</b> day(s)"
         await message.reply(msg, parse_mode="HTML")
-
 
     @dp.message(Command("stats"))
     async def cmd_stats(message: Message):
@@ -947,32 +945,6 @@ def register_user_handlers(dp: Dispatcher, bot: Bot):
             await upsert_user(tg_user)
             db_user = await get_user_by_tgid(tg_user.id)
         await message.reply(await build_info_text(tg_user, db_user), parse_mode="HTML")
-
-    @dp.message(Command("leaderboard_artists"))
-    async def cmd_leaderboard_artists(message: Message):
-        await track_outburst(message, bot)
-        rows = await fetch_all(
-            f"SELECT telegram_id, first_name, username, artist_points, projects, is_vip "
-            f"FROM users WHERE telegram_id NOT IN ({','.join(str(a) for a in ADMINS)}) "
-            f"ORDER BY artist_points DESC LIMIT 10"
-        )
-        if not rows:
-            return await message.reply("No artists yet.")
-        medals = ["🥇", "🥈", "🥉"]
-        lines  = []
-        for i, row in enumerate(rows):
-            medal    = medals[i] if i < 3 else f"{i+1}."
-            vip_tag  = " 👑" if row["is_vip"] else ""
-            link     = user_link(row["first_name"], row["telegram_id"], row["username"])
-            rank_str = calculate_rank(row["artist_points"])
-            lines.append(
-                f"{medal} {link}{vip_tag}\n"
-                f"    🎨 <b>{row['artist_points']}</b> pts | {rank_str} | 🎬 {row['projects']} projects"
-            )
-        await message.reply(
-            "🎨 <b>TOP 10 — ARTIST POINTS</b>\n\n" + "\n\n".join(lines),
-            parse_mode="HTML"
-        )
 
     @dp.message(Command("achievements"))
     async def cmd_achievements(message: Message):
